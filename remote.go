@@ -9,7 +9,9 @@ import (
 type WorkerTaskType int
 
 const (
-	WorkerPreCommit WorkerTaskType = iota
+	WorkerIdle WorkerTaskType = iota
+	WorkerAddPiece
+	WorkerPreCommit
 	WorkerCommit
 )
 
@@ -19,6 +21,9 @@ type WorkerTask struct {
 
 	SectorID uint64
 
+	// AddPiece
+	CommP []byte
+
 	// preCommit
 	SealTicket SealTicket
 	Pieces     []PublicPieceInfo
@@ -26,6 +31,9 @@ type WorkerTask struct {
 	// commit
 	SealSeed SealSeed
 	Rspco    RawSealPreCommitOutput
+
+	// remoteid
+	RemoteID string
 }
 
 type workerCall struct {
@@ -39,12 +47,12 @@ func (sb *SectorBuilder) AddWorker(ctx context.Context, cfg WorkerCfg) (<-chan W
 
 	taskCh := make(chan WorkerTask)
 	r := &remote{
-		sealTasks: taskCh,
-		busy:      0,
+		sealTasks:    taskCh,
+		remoteStatus: WorkerIdle,
+		RemoteID:     cfg.RemoteID,
 	}
 
-	sb.remoteCtr++
-	sb.remotes[sb.remoteCtr] = r
+	sb.remotes[cfg.RemoteID] = r
 
 	go sb.remoteWorker(ctx, r, cfg)
 
@@ -54,10 +62,12 @@ func (sb *SectorBuilder) AddWorker(ctx context.Context, cfg WorkerCfg) (<-chan W
 func (sb *SectorBuilder) returnTask(task workerCall) {
 	var ret chan workerCall
 	switch task.task.Type {
+	case WorkerAddPiece:
 	case WorkerPreCommit:
-		ret = sb.precommitTasks
 	case WorkerCommit:
-		ret = sb.commitTasks
+		remoteid := task.task.RemoteID
+		log.Info("returnTask...", "RemoteID:", remoteid, "  type:",  task.task.Type)
+		ret = sb.specialcommitTasks[remoteid]
 	default:
 		log.Error("unknown task type", task.task.Type)
 	}
@@ -80,26 +90,26 @@ func (sb *SectorBuilder) remoteWorker(ctx context.Context, r *remote, cfg Worker
 
 		for i, vr := range sb.remotes {
 			if vr == r {
+				sb.specialcommitTasks[r.RemoteID] = nil
 				delete(sb.remotes, i)
 				return
 			}
 		}
 	}()
 
-	precommits := sb.precommitTasks
-	if cfg.NoPreCommit {
-		precommits = nil
-	}
-	commits := sb.commitTasks
-	if cfg.NoCommit {
-		commits = nil
+	log.Infof("remoteWorker WorkerCfg RemoteID: %s", cfg.RemoteID)
+
+	if cfg.RemoteID != "" && sb.specialcommitTasks[cfg.RemoteID] == nil {
+		sb.specialcommitTasks[cfg.RemoteID] = make(chan workerCall)
+		r.RemoteID = cfg.RemoteID
+		log.Infof("sb.specialcommitTasks make RemoteID: %s", cfg.RemoteID)
 	}
 
 	for {
 		select {
-		case task := <-commits:
-			sb.doTask(ctx, r, task)
-		case task := <-precommits:
+		// prefer specialcommitTasks
+		case task := <-sb.specialcommitTasks[cfg.RemoteID]:
+			log.Infof("specialcommitTasks SectorID: %d Type: %d RemoteID: %s", task.task.SectorID, task.task.Type, task.task.RemoteID)
 			sb.doTask(ctx, r, task)
 		case <-ctx.Done():
 			return
@@ -107,8 +117,13 @@ func (sb *SectorBuilder) remoteWorker(ctx context.Context, r *remote, cfg Worker
 			return
 		}
 
+
 		r.lk.Lock()
-		r.busy = 0
+		if r.remoteStatus >= WorkerCommit {
+			r.remoteStatus = WorkerIdle
+		} else if r.remoteStatus >= WorkerAddPiece {
+			r.remoteStatus = r.remoteStatus + 1
+		}
 		r.lk.Unlock()
 	}
 }
@@ -129,7 +144,7 @@ func (sb *SectorBuilder) doTask(ctx context.Context, r *remote, task workerCall)
 	}
 
 	r.lk.Lock()
-	r.busy = task.task.TaskID
+	r.remoteStatus = task.task.Type
 	r.lk.Unlock()
 
 	// wait for the result
@@ -153,7 +168,7 @@ func (sb *SectorBuilder) doTask(ctx context.Context, r *remote, task workerCall)
 	}
 }
 
-func (sb *SectorBuilder) TaskDone(ctx context.Context, task uint64, res SealRes) error {
+func (sb *SectorBuilder) TaskDone(ctx context.Context, task uint64,  remoteid string, res SealRes) error {
 	sb.remoteLk.Lock()
 	rres, ok := sb.remoteResults[task]
 	if ok {
@@ -162,13 +177,24 @@ func (sb *SectorBuilder) TaskDone(ctx context.Context, task uint64, res SealRes)
 	sb.remoteLk.Unlock()
 
 	if !ok {
+		sb.remotes[remoteid].remoteStatus = WorkerIdle
 		return xerrors.Errorf("task %d not found", task)
+	}
+
+	if res.GoErr != nil {
+		log.Error("TaskDone GoErr RemoteID: %s", remoteid)
+		sb.remotes[remoteid].remoteStatus = WorkerIdle
 	}
 
 	select {
 	case rres <- res:
 		return nil
 	case <-ctx.Done():
-		return ctx.Err()
+		err := ctx.Err()
+		if err != nil {
+			log.Error("TaskDone GoErr RemoteID: %s", remoteid)
+			sb.remotes[remoteid].remoteStatus = WorkerIdle
+		}
+		return err
 	}
 }

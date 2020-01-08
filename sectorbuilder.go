@@ -2,6 +2,7 @@ package sectorbuilder
 
 import (
 	"fmt"
+	"golang.org/x/exp/rand"
 	"io"
 	"io/ioutil"
 	"os"
@@ -48,6 +49,7 @@ const CommLen = sectorbuilder.CommitmentBytesLen
 type WorkerCfg struct {
 	NoPreCommit bool
 	NoCommit    bool
+	RemoteID    string
 
 	// TODO: 'cost' info, probably in terms of sealing + transfer speed
 }
@@ -67,13 +69,12 @@ type SectorBuilder struct {
 	noPreCommit bool
 	rateLimit   chan struct{}
 
-	precommitTasks chan workerCall
-	commitTasks    chan workerCall
+
+	specialcommitTasks map[string]chan workerCall
 
 	taskCtr       uint64
 	remoteLk      sync.Mutex
-	remoteCtr     int
-	remotes       map[int]*remote
+	remotes       map[string]*remote
 	remoteResults map[uint64]chan<- SealRes
 
 	addPieceWait  int32
@@ -112,13 +113,19 @@ type SealRes struct {
 
 	Proof []byte
 	Rspco JsonRSPCO
+
+	PieceCommp []byte
+	RemoteID string
 }
 
 type remote struct {
 	lk sync.Mutex
 
-	sealTasks chan<- WorkerTask
-	busy      uint64 // only for metrics
+	sealTasks    chan<- WorkerTask
+	remoteStatus WorkerTaskType //for control step
+
+	//RemoteID
+	RemoteID  string
 }
 
 type Config struct {
@@ -156,7 +163,7 @@ func New(cfg *Config, ds datastore.Batching) (*SectorBuilder, error) {
 
 	rlimit := cfg.WorkerThreads - PoStReservedWorkers
 
-	sealLocal := rlimit > 0
+	//sealLocal := rlimit > 0
 
 	if rlimit == 0 {
 		rlimit = 1
@@ -172,15 +179,15 @@ func New(cfg *Config, ds datastore.Batching) (*SectorBuilder, error) {
 
 		Miner: cfg.Miner,
 
-		noPreCommit: cfg.NoPreCommit || !sealLocal,
-		noCommit:    cfg.NoCommit || !sealLocal,
+		noPreCommit: true,
+		noCommit:    true,
 		rateLimit:   make(chan struct{}, rlimit),
 
 		taskCtr:        1,
-		precommitTasks: make(chan workerCall),
-		commitTasks:    make(chan workerCall),
+
+		specialcommitTasks:  map[string]chan workerCall{},
 		remoteResults:  map[uint64]chan<- SealRes{},
-		remotes:        map[int]*remote{},
+		remotes:        map[string]*remote{},
 
 		stopping: make(chan struct{}),
 	}
@@ -202,7 +209,9 @@ func NewStandalone(cfg *Config) (*SectorBuilder, error) {
 		filesystem: openFs(cfg.Dir),
 
 		taskCtr:   1,
-		remotes:   map[int]*remote{},
+		noCommit : false,
+		noPreCommit: false,
+		remotes:   map[string]*remote{},
 		rateLimit: make(chan struct{}, cfg.WorkerThreads),
 		stopping:  make(chan struct{}),
 	}
@@ -250,7 +259,7 @@ func (sb *SectorBuilder) WorkerStats() WorkerStats {
 
 	remoteFree := len(sb.remotes)
 	for _, r := range sb.remotes {
-		if r.busy > 0 {
+		if r.remoteStatus > WorkerIdle {
 			remoteFree--
 		}
 	}
@@ -289,7 +298,9 @@ func (sb *SectorBuilder) AcquireSectorId() (uint64, error) {
 	return id, nil
 }
 
-func (sb *SectorBuilder) AddPiece(pieceSize uint64, sectorId uint64, file io.Reader, existingPieceSizes []uint64) (PublicPieceInfo, error) {
+func (sb *SectorBuilder) AddPiece(pieceSize uint64, sectorId uint64, file io.Reader, existingPieceSizes []uint64, stagingPath string ) (PublicPieceInfo, error) {
+	log.Infof("AddPiece SectorID: %d pieceSize:%d", sectorId, pieceSize)
+
 	fs := sb.filesystem
 
 	if err := fs.reserve(dataStaging, sb.ssize); err != nil {
@@ -297,17 +308,17 @@ func (sb *SectorBuilder) AddPiece(pieceSize uint64, sectorId uint64, file io.Rea
 	}
 	defer fs.free(dataStaging, sb.ssize)
 
-	atomic.AddInt32(&sb.addPieceWait, 1)
-	ret := sb.RateLimit()
-	atomic.AddInt32(&sb.addPieceWait, -1)
-	defer ret()
-
 	f, werr, err := toReadableFile(file, int64(pieceSize))
 	if err != nil {
 		return PublicPieceInfo{}, err
 	}
 
+
 	stagedFile, err := sb.stagedSectorFile(sectorId)
+    if stagingPath != "" {
+	    stagedFile, err = os.OpenFile(stagingPath, os.O_RDWR|os.O_CREATE, 0777)
+	}
+
 	if err != nil {
 		return PublicPieceInfo{}, err
 	}
@@ -329,6 +340,142 @@ func (sb *SectorBuilder) AddPiece(pieceSize uint64, sectorId uint64, file io.Rea
 		Size:  pieceSize,
 		CommP: commP,
 	}, werr()
+}
+
+func (sb *SectorBuilder) sealAddPieceRemote(call workerCall) ([]byte,  string, error) {
+	log.Info("sealAddPieceRemote...", "sectorID:", call.task.SectorID, "  RemoteID:", call.task.RemoteID)
+	atomic.AddInt32(&sb.addPieceWait, -1)
+
+	select {
+	case ret := <-call.ret:
+		var err error
+		if ret.Err != "" {
+			err = xerrors.New(ret.Err)
+		}
+		return ret.PieceCommp, ret.RemoteID, err
+	case <-sb.stopping:
+		return nil, "", xerrors.New("sectorbuilder stopped")
+	}
+}
+
+//SealAddPieceLocal
+func (sb *SectorBuilder) SealAddPieceLocal(sectorID uint64, size uint64, hostfix string) (pcommp[]byte, err error) {
+	log.Info("SealAddPieceLocal...", "sectorID:", sectorID , " RemoteID:", hostfix)
+	atomic.AddInt32(&sb.addPieceWait, -1)
+
+	os.Mkdir(filepath.Join(os.TempDir(), ".lotus"), 0777)
+	os.Mkdir(filepath.Join(os.TempDir(),  ".lotus", hostfix), 0777)
+
+	//var commitPath = filepath.Join(os.TempDir(),".lotus",  hostfix, ".commitCommp.dat")
+	//commitCommp, err := ioutil.ReadFile(commitPath)
+	//if  len(commitCommp) != 32 || err != nil  {
+	//	f, _, err := toReadableFile(io.LimitReader(rand.New(rand.NewSource(42)), int64(size)), int64(size))
+	//	if err != nil {
+	//		log.Error("SealAddPieceLocal...", "sectorID:", sectorID , " RemoteID:", hostfix, "err", err)
+	//		return nil, err
+	//	}
+	//
+	//	commit, err := sectorbuilder.GeneratePieceCommitmentFromFile(f, size)
+	//	if err != nil {
+	//		log.Error("SealAddPieceLocal...", "sectorID:", sectorID , " RemoteID:", hostfix, "err", err)
+	//		return nil, err
+	//	}
+	//
+	//	err = ioutil.WriteFile(commitPath, commit[:], 0777)
+	//	if err != nil {
+	//		return nil, xerrors.Errorf("SealAddPieceLocal WriteFile: %w", err)
+	//	}
+	//
+	//	log.Info("SealAddPieceLocal...  ", "GeneratePieceCommitment  sectorID:", sectorID, "  commitCommp :", commit)
+	//}
+
+	var keyPath = filepath.Join(os.TempDir(), ".lotus", hostfix, ".lastcommP.dat")
+	var piecePath = filepath.Join(os.TempDir(),".lotus",  hostfix, ".lastpiece.dat")
+
+	pieceCommp, keyerr := ioutil.ReadFile(keyPath)
+
+	pieceExist := false
+	_, peiceerr := os.Stat(piecePath)
+	if peiceerr == nil || os.IsExist(peiceerr) {
+		pieceExist = true
+	}
+	if  len(pieceCommp) != 32 || !pieceExist || keyerr != nil  {
+		ppi, err := sb.AddPiece(size, sectorID, io.LimitReader(rand.New(rand.NewSource(42)), int64(size)), []uint64{}, piecePath)
+		if err != nil {
+			log.Info("SealAddPieceLocal...", "sectorID:", sectorID , " RemoteID:", hostfix, "err", err)
+			return nil, xerrors.Errorf("SealAddPieceLocal: %w", err)
+		}
+		err = ioutil.WriteFile(keyPath, ppi.CommP[:], 0777)
+		if err != nil {
+			return nil, xerrors.Errorf("SealAddPieceLocal WriteFile: %w", err)
+		}
+
+		pieceCommp = ppi.CommP[:]
+		log.Info("SealAddPieceLocal...  ", "sb.AddPiece  sectorID:", sectorID, "  pieceCommp :", pieceCommp)
+	}
+
+	log.Info("SealAddPieceLocal...  ", " sectorID:", sectorID, "  pieceCommp :", pieceCommp)
+
+	migrateFile(piecePath, sb.StagedSectorPath(sectorID), true)
+
+	return pieceCommp, nil
+}
+
+func (sb *SectorBuilder) SealAddPiece(sectorID uint64, remoteid string) ([]byte, string, error) {
+	log.Info("SealAddPiece...", "sectorID: ", sectorID)
+	call := workerCall{
+		task: WorkerTask{
+			Type:       WorkerAddPiece,
+			TaskID:     atomic.AddUint64(&sb.taskCtr, 1),
+			SectorID:   sectorID,
+		},
+		ret: make(chan SealRes),
+	}
+
+	if remoteid == "" {
+		for _, r := range sb.remotes {
+			if r.remoteStatus == WorkerIdle {
+				remoteid = r.RemoteID
+				break
+			}
+		}
+	}
+
+	if remoteid == "" {
+		return nil, "", xerrors.New("remoteid not find")
+	}
+
+    //TODO don't do this
+	//if sb.specialcommitTasks[remoteid] == nil {
+	//	sb.specialcommitTasks[remoteid] = make(chan workerCall)
+	//}
+
+	task := sb.specialcommitTasks[remoteid]
+	if task == nil {
+		return nil, "", xerrors.New("specialcommitTasks not find")
+	}
+	call.task.RemoteID = remoteid
+	log.Info("SealAddPiece...", "RemoteID: ", remoteid)
+	atomic.AddInt32(&sb.addPieceWait, 1)
+	select { // prefer remote
+	case task <- call:
+		return sb.sealAddPieceRemote(call)
+	default:
+		select { // prefer remote
+		case task <- call:
+			log.Info("sealAddPieceRemote...", "sectorID: ", sectorID)
+			return sb.sealAddPieceRemote(call)
+		default:
+			//rl := sb.rateLimit
+			select { // use whichever is available
+			case task <- call:
+				log.Info("sealAddPieceRemote...", "sectorID:", sectorID)
+				return sb.sealAddPieceRemote(call)
+			}
+		}
+	}
+
+	return nil, "", xerrors.New("sectorbuilder stopped")
 }
 
 func (sb *SectorBuilder) ReadPieceFromSealedSector(sectorID uint64, offset uint64, size uint64, ticket []byte, commD []byte) (io.ReadCloser, error) {
@@ -410,6 +557,7 @@ func (sb *SectorBuilder) ReadPieceFromSealedSector(sectorID uint64, offset uint6
 }
 
 func (sb *SectorBuilder) sealPreCommitRemote(call workerCall) (RawSealPreCommitOutput, error) {
+	log.Info("sealPreCommitRemote...", "sectorID:", call.task.SectorID)
 	atomic.AddInt32(&sb.preCommitWait, -1)
 
 	select {
@@ -424,7 +572,9 @@ func (sb *SectorBuilder) sealPreCommitRemote(call workerCall) (RawSealPreCommitO
 	}
 }
 
-func (sb *SectorBuilder) SealPreCommit(sectorID uint64, ticket SealTicket, pieces []PublicPieceInfo) (RawSealPreCommitOutput, error) {
+func (sb *SectorBuilder) SealPreCommitLocal(sectorID uint64, ticket SealTicket, pieces []PublicPieceInfo) (RawSealPreCommitOutput, error) {
+	log.Info("SealPreCommitLocal...", "sectorID:", sectorID)
+	atomic.AddInt32(&sb.preCommitWait, -1)
 	fs := sb.filesystem
 
 	if err := fs.reserve(dataCache, sb.ssize); err != nil {
@@ -436,46 +586,6 @@ func (sb *SectorBuilder) SealPreCommit(sectorID uint64, ticket SealTicket, piece
 		return RawSealPreCommitOutput{}, err
 	}
 	defer fs.free(dataSealed, sb.ssize)
-
-	call := workerCall{
-		task: WorkerTask{
-			Type:       WorkerPreCommit,
-			TaskID:     atomic.AddUint64(&sb.taskCtr, 1),
-			SectorID:   sectorID,
-			SealTicket: ticket,
-			Pieces:     pieces,
-		},
-		ret: make(chan SealRes),
-	}
-
-	atomic.AddInt32(&sb.preCommitWait, 1)
-
-	select { // prefer remote
-	case sb.precommitTasks <- call:
-		return sb.sealPreCommitRemote(call)
-	default:
-	}
-
-	sb.checkRateLimit()
-
-	rl := sb.rateLimit
-	if sb.noPreCommit {
-		rl = make(chan struct{})
-	}
-
-	select { // use whichever is available
-	case sb.precommitTasks <- call:
-		return sb.sealPreCommitRemote(call)
-	case rl <- struct{}{}:
-	}
-
-	atomic.AddInt32(&sb.preCommitWait, -1)
-
-	// local
-
-	defer func() {
-		<-sb.rateLimit
-	}()
 
 	cacheDir, err := sb.sectorCacheDir(sectorID)
 	if err != nil {
@@ -521,7 +631,43 @@ func (sb *SectorBuilder) SealPreCommit(sectorID uint64, ticket SealTicket, piece
 		return RawSealPreCommitOutput{}, xerrors.Errorf("presealing sector %d (%s): %w", sectorID, stagedPath, err)
 	}
 
+	log.Info("SealPreCommitLocal...", "PreCommitOutput:", sectorID)
 	return RawSealPreCommitOutput(rspco), nil
+}
+
+func (sb *SectorBuilder) SealPreCommit(sectorID uint64, ticket SealTicket, pieces []PublicPieceInfo, remoteid string) (RawSealPreCommitOutput, error) {
+	log.Info("SealPreCommit...", "RemoteID:", remoteid)
+
+	if sb.specialcommitTasks[remoteid] == nil {
+		sb.specialcommitTasks[remoteid] = make(chan workerCall)
+	}
+
+	specialtask := sb.specialcommitTasks[remoteid]
+	call := workerCall{
+		task: WorkerTask{
+			Type:       WorkerPreCommit,
+			TaskID:     atomic.AddUint64(&sb.taskCtr, 1),
+			SectorID:   sectorID,
+			SealTicket: ticket,
+			Pieces:     pieces,
+			RemoteID:   remoteid,
+		},
+		ret: make(chan SealRes),
+	}
+
+	atomic.AddInt32(&sb.preCommitWait, 1)
+
+	select { // prefer remote
+	case specialtask <- call:
+		return sb.sealPreCommitRemote(call)
+	default:
+		select { // use whichever is available
+		case specialtask <- call:
+			return sb.sealPreCommitRemote(call)
+		}
+	}
+
+	return RawSealPreCommitOutput{}, xerrors.New("sectorbuilder stopped")
 }
 
 func (sb *SectorBuilder) sealCommitRemote(call workerCall) (proof []byte, err error) {
@@ -538,12 +684,9 @@ func (sb *SectorBuilder) sealCommitRemote(call workerCall) (proof []byte, err er
 	}
 }
 
-func (sb *SectorBuilder) sealCommitLocal(sectorID uint64, ticket SealTicket, seed SealSeed, pieces []PublicPieceInfo, rspco RawSealPreCommitOutput) (proof []byte, err error) {
+func (sb *SectorBuilder) SealCommitLocal(sectorID uint64, ticket SealTicket, seed SealSeed, pieces []PublicPieceInfo, rspco RawSealPreCommitOutput) (proof []byte, err error) {
+	log.Info("SealCommitLocal...", "sectorID:", sectorID)
 	atomic.AddInt32(&sb.commitWait, -1)
-
-	defer func() {
-		<-sb.rateLimit
-	}()
 
 	cacheDir, err := sb.sectorCacheDir(sectorID)
 	if err != nil {
@@ -568,10 +711,19 @@ func (sb *SectorBuilder) sealCommitLocal(sectorID uint64, ticket SealTicket, see
 		return nil, xerrors.Errorf("StandaloneSealCommit: %w", err)
 	}
 
+	log.Info("SealCommitLocal...end", "sectorID:", sectorID)
 	return proof, nil
 }
 
-func (sb *SectorBuilder) SealCommit(sectorID uint64, ticket SealTicket, seed SealSeed, pieces []PublicPieceInfo, rspco RawSealPreCommitOutput) (proof []byte, err error) {
+func (sb *SectorBuilder) SealCommit(sectorID uint64, ticket SealTicket, seed SealSeed, pieces []PublicPieceInfo, rspco RawSealPreCommitOutput, remoteid string) (proof []byte, err error) {
+	log.Info("SealCommit...", "RemoteID:", remoteid)
+
+	if sb.specialcommitTasks[remoteid] == nil {
+		sb.specialcommitTasks[remoteid] = make(chan workerCall)
+	}
+
+	specialtask := sb.specialcommitTasks[remoteid]
+
 	call := workerCall{
 		task: WorkerTask{
 			Type:       WorkerCommit,
@@ -582,6 +734,8 @@ func (sb *SectorBuilder) SealCommit(sectorID uint64, ticket SealTicket, seed Sea
 
 			SealSeed: seed,
 			Rspco:    rspco,
+
+			RemoteID: remoteid,
 		},
 		ret: make(chan SealRes),
 	}
@@ -589,21 +743,14 @@ func (sb *SectorBuilder) SealCommit(sectorID uint64, ticket SealTicket, seed Sea
 	atomic.AddInt32(&sb.commitWait, 1)
 
 	select { // prefer remote
-	case sb.commitTasks <- call:
+	case specialtask <- call:
+		log.Info("sealCommitRemote...", "RemoteID:", remoteid)
 		proof, err = sb.sealCommitRemote(call)
 	default:
-		sb.checkRateLimit()
-
-		rl := sb.rateLimit
-		if sb.noCommit {
-			rl = make(chan struct{})
-		}
-
 		select { // use whichever is available
-		case sb.commitTasks <- call:
+		case specialtask <- call:
+			log.Info("sealCommitRemote...", "RemoteID:", remoteid)
 			proof, err = sb.sealCommitRemote(call)
-		case rl <- struct{}{}:
-			proof, err = sb.sealCommitLocal(sectorID, ticket, seed, pieces, rspco)
 		}
 	}
 	if err != nil {
