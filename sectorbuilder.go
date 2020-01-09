@@ -300,9 +300,9 @@ func (sb *SectorBuilder) AcquireSectorId() (uint64, error) {
 
 func (sb *SectorBuilder) SetRemoteStatus(remoteid string) (error) {
 	if sb.remotes[remoteid] != nil {
-		r.lk.Lock()
+		sb.remotes[remoteid].lk.Lock()
 		sb.remotes[remoteid].remoteStatus = WorkerIdle
-		r.lk.Unlock()
+		sb.remotes[remoteid].lk.Unlock()
 	}
 	return nil
 }
