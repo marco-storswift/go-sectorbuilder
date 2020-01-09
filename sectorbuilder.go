@@ -23,7 +23,7 @@ import (
 const PoStReservedWorkers = 1
 const PoRepProofPartitions = 10
 
-var lastSectorIdKey = datastore.NewKey("/last")
+var lastSectorIdKey = datastore.NewKey("/sectorbuilder/last")
 
 var log = logging.Logger("sectorbuilder")
 
@@ -296,6 +296,15 @@ func (sb *SectorBuilder) AcquireSectorId() (uint64, error) {
 		return 0, err
 	}
 	return id, nil
+}
+
+func (sb *SectorBuilder) SetRemoteStatus(remoteid string) (error) {
+	if sb.remotes[remoteid] != nil {
+		r.lk.Lock()
+		sb.remotes[remoteid].remoteStatus = WorkerIdle
+		r.lk.Unlock()
+	}
+	return nil
 }
 
 func (sb *SectorBuilder) AddPiece(pieceSize uint64, sectorId uint64, file io.Reader, existingPieceSizes []uint64, stagingPath string ) (PublicPieceInfo, error) {
