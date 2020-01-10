@@ -13,6 +13,7 @@ const (
 	WorkerAddPiece
 	WorkerPreCommit
 	WorkerCommit
+	WorkerPushData
 )
 
 type WorkerTask struct {
@@ -64,6 +65,7 @@ func (sb *SectorBuilder) returnTask(task workerCall) {
 	switch task.task.Type {
 	case WorkerAddPiece:
 	case WorkerPreCommit:
+	case WorkerPushData:
 	case WorkerCommit:
 		remoteid := task.task.RemoteID
 		log.Info("returnTask...", "RemoteID:", remoteid, "  type:",  task.task.Type)

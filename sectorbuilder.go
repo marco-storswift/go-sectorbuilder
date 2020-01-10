@@ -1,6 +1,7 @@
 package sectorbuilder
 
 import (
+	"container/list"
 	"fmt"
 	"golang.org/x/exp/rand"
 	"io"
@@ -79,6 +80,7 @@ type SectorBuilder struct {
 
 	addPieceWait  int32
 	preCommitWait int32
+	pushDataWait    int32
 	commitWait    int32
 	unsealWait    int32
 
@@ -86,6 +88,8 @@ type SectorBuilder struct {
 	filesystem *fs        // TODO: multi-fs support
 
 	stopping chan struct{}
+
+	pushDataQueue   *list.List
 }
 
 type JsonRSPCO struct {
@@ -214,6 +218,7 @@ func NewStandalone(cfg *Config) (*SectorBuilder, error) {
 		remotes:   map[string]*remote{},
 		rateLimit: make(chan struct{}, cfg.WorkerThreads),
 		stopping:  make(chan struct{}),
+		pushDataQueue:  list.New(),
 	}
 
 	if err := sb.filesystem.init(); err != nil {
@@ -249,6 +254,7 @@ type WorkerStats struct {
 
 	AddPieceWait  int
 	PreCommitWait int
+	PushDataWait int
 	CommitWait    int
 	UnsealWait    int
 }
@@ -273,6 +279,7 @@ func (sb *SectorBuilder) WorkerStats() WorkerStats {
 
 		AddPieceWait:  int(atomic.LoadInt32(&sb.addPieceWait)),
 		PreCommitWait: int(atomic.LoadInt32(&sb.preCommitWait)),
+		PushDataWait:  int(atomic.LoadInt32(&sb.pushDataWait)),
 		CommitWait:    int(atomic.LoadInt32(&sb.commitWait)),
 		UnsealWait:    int(atomic.LoadInt32(&sb.unsealWait)),
 	}
@@ -430,6 +437,75 @@ func (sb *SectorBuilder) SealAddPieceLocal(sectorID uint64, size uint64, hostfix
 	return pieceCommp, nil
 }
 
+func (sb *SectorBuilder) sealPushDataRemote(call workerCall) (string, error) {
+	log.Info("sealAddPieceRemote...", "sectorID:", call.task.SectorID, "  RemoteID:", call.task.RemoteID)
+	atomic.AddInt32(&sb.pushDataWait, -1)
+
+	select {
+	case ret := <-call.ret:
+		var err error
+		if ret.Err != "" {
+			err = xerrors.New(ret.Err)
+		}
+		return ret.RemoteID, err
+	case <-sb.stopping:
+		return "", xerrors.New("sectorbuilder stopped")
+	}
+}
+
+func (sb *SectorBuilder) SealPushData() (error) {
+	log.Info("SealPushData...")
+
+	var workernum = 0
+	for _, r := range sb.remotes {
+		if r.remoteStatus == WorkerPushData {
+			workernum ++
+		}
+	}
+
+	if workernum > 2 {
+		log.Info("SealPushData...workernum:", workernum)
+		return nil
+	}
+
+	ele := sb.pushDataQueue.Back()
+	if ele == nil {
+		log.Info("SealPushData...workernum:", workernum)
+		return nil
+	}
+
+	value := ele.Value.(workerCall)
+	log.Info("SealPushData...", "pushDataQueue: ", value)
+	sectorID := value.task.SectorID
+	remoteID := value.task.RemoteID
+	log.Info("SealPushData...", "pushDataQueue: ", remoteID,  sectorID)
+	call := workerCall{
+		task: WorkerTask{
+			Type:       WorkerPushData,
+			TaskID:     atomic.AddUint64(&sb.taskCtr, 1),
+			SectorID:   sectorID,
+			RemoteID:   remoteID,
+		},
+		ret: make(chan SealRes),
+	}
+
+	task := sb.specialcommitTasks[remoteID]
+	if task == nil {
+		return  xerrors.New("specialcommitTasks not find")
+	}
+
+	atomic.AddInt32(&sb.pushDataWait, 1)
+	log.Info("SealPushData...", "RemoteID: ", remoteID)
+	select { // prefer remote
+	case task <- call:
+		 sb.sealPushDataRemote(call)
+		 return nil
+	default:
+	}
+
+	return xerrors.New("sectorbuilder stopped")
+}
+
 func (sb *SectorBuilder) SealAddPiece(sectorID uint64, remoteid string) ([]byte, string, error) {
 	log.Info("SealAddPiece...", "sectorID: ", sectorID)
 	call := workerCall{
@@ -574,6 +650,8 @@ func (sb *SectorBuilder) sealPreCommitRemote(call workerCall) (RawSealPreCommitO
 		var err error
 		if ret.Err != "" {
 			err = xerrors.New(ret.Err)
+		} else {
+			sb.pushDataQueue.PushFront(call)
 		}
 		return ret.Rspco.rspco(), err
 	case <-sb.stopping:
