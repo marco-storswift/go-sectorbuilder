@@ -80,7 +80,7 @@ type SectorBuilder struct {
 
 	addPieceWait  int32
 	preCommitWait int32
-	pushDataWait    int32
+	pushDataWait  int32
 	commitWait    int32
 	unsealWait    int32
 
@@ -475,7 +475,7 @@ func (sb *SectorBuilder) SealPushData() (error) {
 		return nil
 	}
 
-	ele := sb.pushDataQueue.Back()
+	ele := sb.pushDataQueue.Front()
 	if ele == nil {
 		log.Info("SealPushData...workernum:", workernum)
 		return nil
@@ -485,7 +485,15 @@ func (sb *SectorBuilder) SealPushData() (error) {
 	log.Info("SealPushData...", "pushDataQueue: ", value)
 	sectorID := value.task.SectorID
 	remoteID := value.task.RemoteID
-	log.Info("SealPushData...", "pushDataQueue: ", remoteID,  sectorID)
+
+	log.Info("SealPushData...", "workernum:", workernum," remoteID: ", remoteID,  " sectorID: ",sectorID)
+	sb.pushDataQueue.Remove(ele)
+
+	if sectorID == 0 || remoteID == "" {
+		log.Error("SealPushData...", "workernum:", workernum," remoteID: ", remoteID,  " sectorID: ",sectorID)
+		return nil
+	}
+
 	call := workerCall{
 		task: WorkerTask{
 			Type:       WorkerPushData,
