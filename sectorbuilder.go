@@ -390,7 +390,7 @@ func (sb *SectorBuilder) SealAddPieceLocal(sectorID uint64, size uint64, hostfix
 	//Check file
 	fileinfo, err := os.Stat(sb.StagedSectorPath(sectorID))
 	if err == nil || os.IsExist(err) {
-		log.Error("SealAddPieceLocal...", "sectorID:", sectorID , " RemoteID:", hostfix, "err:", err)
+		log.Warn("SealAddPieceLocal...", "sectorID:", sectorID , " RemoteID:", hostfix, " err:", err)
 		os.Remove(sb.StagedSectorPath(sectorID))
 	}
 
@@ -404,7 +404,7 @@ func (sb *SectorBuilder) SealAddPieceLocal(sectorID uint64, size uint64, hostfix
 	if  len(pieceCommp) != 32 || !pieceExist || keyerr != nil  {
 		ppi, err := sb.AddPiece(size, sectorID, io.LimitReader(rand.New(rand.NewSource(42)), int64(size)), []uint64{}, piecePath)
 		if err != nil {
-			log.Info("SealAddPieceLocal...", "sectorID:", sectorID , " RemoteID:", hostfix, "err", err)
+			log.Info("SealAddPieceLocal...", "sectorID:", sectorID , " RemoteID:", hostfix, " err", err)
 			return nil, xerrors.Errorf("SealAddPieceLocal: %w", err)
 		}
 		err = ioutil.WriteFile(keyPath, ppi.CommP[:], 0777)
@@ -413,17 +413,17 @@ func (sb *SectorBuilder) SealAddPieceLocal(sectorID uint64, size uint64, hostfix
 		}
 
 		pieceCommp = ppi.CommP[:]
-		log.Info("SealAddPieceLocal...  ", "sb.AddPiece  sectorID:", sectorID, "  pieceCommp :", pieceCommp)
+		log.Info("SealAddPieceLocal...  ", "sb.AddPiece  sectorID:", sectorID, "  pieceCommp:", pieceCommp)
 	}
 
-	log.Info("SealAddPieceLocal...  ", " sectorID:", sectorID, "  pieceCommp :", pieceCommp)
+	log.Info("SealAddPieceLocal...  ", " sectorID:", sectorID, "  pieceCommp:", pieceCommp)
 
 	migrateFile(piecePath, sb.StagedSectorPath(sectorID), true)
 
 	//Dobule Check
 	fileinfo, err = os.Stat(sb.StagedSectorPath(sectorID))
 	if err != nil || fileinfo.Size() == 0 {
-		log.Error("SealAddPieceLocal...", "sectorID:", sectorID , " RemoteID:", hostfix, "err:", err)
+		log.Warn("SealAddPieceLocal...", "sectorID:", sectorID , " RemoteID:", hostfix, " err:", err)
 		os.Remove(sb.StagedSectorPath(sectorID))
 		migrateFile(piecePath, sb.StagedSectorPath(sectorID), true)
 	}
