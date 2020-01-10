@@ -384,31 +384,15 @@ func (sb *SectorBuilder) SealAddPieceLocal(sectorID uint64, size uint64, hostfix
 	os.Mkdir(filepath.Join(os.TempDir(), ".lotus"), 0777)
 	os.Mkdir(filepath.Join(os.TempDir(),  ".lotus", hostfix), 0777)
 
-	//var commitPath = filepath.Join(os.TempDir(),".lotus",  hostfix, ".commitCommp.dat")
-	//commitCommp, err := ioutil.ReadFile(commitPath)
-	//if  len(commitCommp) != 32 || err != nil  {
-	//	f, _, err := toReadableFile(io.LimitReader(rand.New(rand.NewSource(42)), int64(size)), int64(size))
-	//	if err != nil {
-	//		log.Error("SealAddPieceLocal...", "sectorID:", sectorID , " RemoteID:", hostfix, "err", err)
-	//		return nil, err
-	//	}
-	//
-	//	commit, err := sectorbuilder.GeneratePieceCommitmentFromFile(f, size)
-	//	if err != nil {
-	//		log.Error("SealAddPieceLocal...", "sectorID:", sectorID , " RemoteID:", hostfix, "err", err)
-	//		return nil, err
-	//	}
-	//
-	//	err = ioutil.WriteFile(commitPath, commit[:], 0777)
-	//	if err != nil {
-	//		return nil, xerrors.Errorf("SealAddPieceLocal WriteFile: %w", err)
-	//	}
-	//
-	//	log.Info("SealAddPieceLocal...  ", "GeneratePieceCommitment  sectorID:", sectorID, "  commitCommp :", commit)
-	//}
-
 	var keyPath = filepath.Join(os.TempDir(), ".lotus", hostfix, ".lastcommP.dat")
 	var piecePath = filepath.Join(os.TempDir(),".lotus",  hostfix, ".lastpiece.dat")
+
+	//Check file
+	fileinfo, err := os.Stat(sb.StagedSectorPath(sectorID))
+	if err == nil || os.IsExist(err) {
+		log.Error("SealAddPieceLocal...", "sectorID:", sectorID , " RemoteID:", hostfix, "err:", err)
+		os.Remove(sb.StagedSectorPath(sectorID))
+	}
 
 	pieceCommp, keyerr := ioutil.ReadFile(keyPath)
 
@@ -435,6 +419,14 @@ func (sb *SectorBuilder) SealAddPieceLocal(sectorID uint64, size uint64, hostfix
 	log.Info("SealAddPieceLocal...  ", " sectorID:", sectorID, "  pieceCommp :", pieceCommp)
 
 	migrateFile(piecePath, sb.StagedSectorPath(sectorID), true)
+
+	//Dobule Check
+	fileinfo, err = os.Stat(sb.StagedSectorPath(sectorID))
+	if err != nil || fileinfo.Size() == 0 {
+		log.Error("SealAddPieceLocal...", "sectorID:", sectorID , " RemoteID:", hostfix, "err:", err)
+		os.Remove(sb.StagedSectorPath(sectorID))
+		migrateFile(piecePath, sb.StagedSectorPath(sectorID), true)
+	}
 
 	return pieceCommp, nil
 }
