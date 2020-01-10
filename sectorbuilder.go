@@ -468,6 +468,11 @@ func (sb *SectorBuilder) SealPushData() (error) {
 		return nil
 	}
 
+	if sb.pushDataQueue == nil || sb.pushDataQueue.Len() == 0 {
+		log.Info("SealPushData...pushDataQueue is null:")
+		return nil
+	}
+
 	ele := sb.pushDataQueue.Back()
 	if ele == nil {
 		log.Info("SealPushData...workernum:", workernum)
