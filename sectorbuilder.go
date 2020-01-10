@@ -194,6 +194,8 @@ func New(cfg *Config, ds datastore.Batching) (*SectorBuilder, error) {
 		remotes:        map[string]*remote{},
 
 		stopping: make(chan struct{}),
+
+		pushDataQueue:  list.New(),
 	}
 
 	if err := sb.filesystem.init(); err != nil {
