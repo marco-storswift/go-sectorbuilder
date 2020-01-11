@@ -48,12 +48,14 @@ type EPostCandidate = sectorbuilder.Candidate
 const CommLen = sectorbuilder.CommitmentBytesLen
 
 type WorkerCfg struct {
-	NoPreCommit bool
-	NoCommit    bool
+	NoSeal      bool
+	NoPush      bool
 	RemoteID    string
 
 	// TODO: 'cost' info, probably in terms of sealing + transfer speed
 }
+
+var pushSectorId = uint64(0)
 
 type SectorBuilder struct {
 	ds   datastore.Batching
@@ -71,7 +73,8 @@ type SectorBuilder struct {
 	rateLimit   chan struct{}
 
 
-	specialcommitTasks map[string]chan workerCall
+	sealTasks map[string]chan workerCall
+	pushTasks map[string]chan workerCall
 
 	taskCtr       uint64
 	remoteLk      sync.Mutex
@@ -189,9 +192,10 @@ func New(cfg *Config, ds datastore.Batching) (*SectorBuilder, error) {
 
 		taskCtr:        1,
 
-		specialcommitTasks:  map[string]chan workerCall{},
-		remoteResults:  map[uint64]chan<- SealRes{},
-		remotes:        map[string]*remote{},
+		sealTasks:     map[string]chan workerCall{},
+		pushTasks:     map[string]chan workerCall{},
+		remoteResults: map[uint64]chan<- SealRes{},
+		remotes:       map[string]*remote{},
 
 		stopping: make(chan struct{}),
 
@@ -448,15 +452,8 @@ func (sb *SectorBuilder) sealPushDataRemote(call workerCall) (string, error) {
 }
 
 func (sb *SectorBuilder) SealPushData() (error) {
-	var workernum = 0
-	for _, r := range sb.remotes {
-		if r.remoteStatus == WorkerPushData {
-			workernum ++
-		}
-	}
-
-	if workernum > 2 {
-		log.Info("SealPushData...workernum:", workernum)
+	if pushSectorId != uint64(0) {
+		log.Info("SealPushData... in process  pushSectorId:", pushSectorId)
 		return nil
 	}
 
@@ -466,7 +463,7 @@ func (sb *SectorBuilder) SealPushData() (error) {
 
 	ele := sb.pushDataQueue.Front()
 	if ele == nil {
-		log.Info("SealPushData...workernum:", workernum)
+		log.Info("SealPushData... ele == nil  pushSectorId:", pushSectorId)
 		return nil
 	}
 
@@ -479,7 +476,7 @@ func (sb *SectorBuilder) SealPushData() (error) {
 	sb.pushDataQueue.Remove(ele)
 
 	if sectorID == 0 || remoteID == "" {
-		log.Error("SealPushData...", "workernum:", workernum," remoteID: ", remoteID,  " sectorID: ",sectorID)
+		log.Error("SealPushData...", "remoteID: ", remoteID,  " sectorID: ",sectorID)
 		return nil
 	}
 
@@ -492,20 +489,24 @@ func (sb *SectorBuilder) SealPushData() (error) {
 		},
 		ret: make(chan SealRes),
 	}
+	atomic.AddInt32(&sb.pushDataWait, 1)
 
-	task := sb.specialcommitTasks[remoteID]
+	task := sb.pushTasks[remoteID]
 	if task == nil {
-		return  xerrors.New("specialcommitTasks not find")
+		return  xerrors.New("pushTasks not find")
 	}
-
+	pushSectorId = sectorID
 	select { // prefer remote
 	case task <- call:
 		 sb.sealPushDataRemote(call)
+		 pushSectorId = uint64(0)
 		 return nil
 	default:
+		pushSectorId = uint64(0)
+		return nil
 	}
 
-	return xerrors.New("sectorbuilder stopped")
+	return nil
 }
 
 func (sb *SectorBuilder) SealAddPiece(sectorID uint64, remoteid string) ([]byte, string, error) {
@@ -533,13 +534,13 @@ func (sb *SectorBuilder) SealAddPiece(sectorID uint64, remoteid string) ([]byte,
 	}
 
     //TODO don't do this
-	//if sb.specialcommitTasks[remoteid] == nil {
-	//	sb.specialcommitTasks[remoteid] = make(chan workerCall)
+	//if sb.sealTasks[remoteid] == nil {
+	//	sb.sealTasks[remoteid] = make(chan workerCall)
 	//}
 
-	task := sb.specialcommitTasks[remoteid]
+	task := sb.sealTasks[remoteid]
 	if task == nil {
-		return nil, "", xerrors.New("specialcommitTasks not find")
+		return nil, "", xerrors.New("sealTasks not find")
 	}
 	call.task.RemoteID = remoteid
 	log.Info("SealAddPiece...", "RemoteID: ", remoteid)
@@ -653,7 +654,6 @@ func (sb *SectorBuilder) sealPreCommitRemote(call workerCall) (RawSealPreCommitO
 		if ret.Err != "" {
 			err = xerrors.New(ret.Err)
 		} else {
-			atomic.AddInt32(&sb.pushDataWait, 1)
 			sb.pushDataQueue.PushFront(call)
 		}
 		return ret.Rspco.rspco(), err
@@ -728,11 +728,11 @@ func (sb *SectorBuilder) SealPreCommitLocal(sectorID uint64, ticket SealTicket, 
 func (sb *SectorBuilder) SealPreCommit(sectorID uint64, ticket SealTicket, pieces []PublicPieceInfo, remoteid string) (RawSealPreCommitOutput, error) {
 	log.Info("SealPreCommit...", "RemoteID:", remoteid)
 
-	if sb.specialcommitTasks[remoteid] == nil {
-		sb.specialcommitTasks[remoteid] = make(chan workerCall)
+	if sb.sealTasks[remoteid] == nil {
+		sb.sealTasks[remoteid] = make(chan workerCall)
 	}
 
-	specialtask := sb.specialcommitTasks[remoteid]
+	specialtask := sb.sealTasks[remoteid]
 	call := workerCall{
 		task: WorkerTask{
 			Type:       WorkerPreCommit,
@@ -808,11 +808,11 @@ func (sb *SectorBuilder) SealCommitLocal(sectorID uint64, ticket SealTicket, see
 func (sb *SectorBuilder) SealCommit(sectorID uint64, ticket SealTicket, seed SealSeed, pieces []PublicPieceInfo, rspco RawSealPreCommitOutput, remoteid string) (proof []byte, err error) {
 	log.Info("SealCommit...", "RemoteID:", remoteid)
 
-	if sb.specialcommitTasks[remoteid] == nil {
-		sb.specialcommitTasks[remoteid] = make(chan workerCall)
+	if sb.sealTasks[remoteid] == nil {
+		sb.sealTasks[remoteid] = make(chan workerCall)
 	}
 
-	specialtask := sb.specialcommitTasks[remoteid]
+	specialtask := sb.sealTasks[remoteid]
 
 	call := workerCall{
 		task: WorkerTask{

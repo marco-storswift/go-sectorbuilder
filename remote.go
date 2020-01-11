@@ -65,11 +65,14 @@ func (sb *SectorBuilder) returnTask(task workerCall) {
 	switch task.task.Type {
 	case WorkerAddPiece:
 	case WorkerPreCommit:
-	case WorkerPushData:
 	case WorkerCommit:
 		remoteid := task.task.RemoteID
 		log.Info("returnTask...", "RemoteID:", remoteid, "  type:",  task.task.Type)
-		ret = sb.specialcommitTasks[remoteid]
+		ret = sb.sealTasks[remoteid]
+	case WorkerPushData:
+		remoteid := task.task.RemoteID
+		log.Info("returnTask...", "RemoteID:", remoteid, "  type:",  task.task.Type)
+		ret = sb.pushTasks[remoteid]
 	default:
 		log.Error("unknown task type", task.task.Type)
 	}
@@ -92,7 +95,8 @@ func (sb *SectorBuilder) remoteWorker(ctx context.Context, r *remote, cfg Worker
 
 		for i, vr := range sb.remotes {
 			if vr == r {
-				sb.specialcommitTasks[r.RemoteID] = nil
+				sb.sealTasks[r.RemoteID] = nil
+				sb.pushTasks[r.RemoteID] = nil
 				delete(sb.remotes, i)
 				return
 			}
@@ -101,17 +105,35 @@ func (sb *SectorBuilder) remoteWorker(ctx context.Context, r *remote, cfg Worker
 
 	log.Infof("remoteWorker WorkerCfg RemoteID: %s", cfg.RemoteID)
 
-	if cfg.RemoteID != "" && sb.specialcommitTasks[cfg.RemoteID] == nil {
-		sb.specialcommitTasks[cfg.RemoteID] = make(chan workerCall)
+	if !cfg.NoSeal && cfg.RemoteID != "" && sb.sealTasks[cfg.RemoteID] == nil {
+		sb.sealTasks[cfg.RemoteID] = make(chan workerCall)
 		r.RemoteID = cfg.RemoteID
-		log.Infof("sb.specialcommitTasks make RemoteID: %s", cfg.RemoteID)
+		log.Infof("sb.sealTasks make RemoteID: %s", cfg.RemoteID)
+	}
+
+	if !cfg.NoPush && cfg.RemoteID != "" && sb.pushTasks[cfg.RemoteID] == nil {
+		sb.pushTasks[cfg.RemoteID] = make(chan workerCall)
+		r.RemoteID = cfg.RemoteID
+		log.Infof("sb.pushTasks make RemoteID: %s", cfg.RemoteID)
+	}
+
+	seal := sb.sealTasks[cfg.RemoteID]
+	if cfg.NoSeal {
+		seal = nil
+	}
+	push := sb.pushTasks[cfg.RemoteID]
+	if cfg.NoPush {
+		push = nil
 	}
 
 	for {
 		select {
-		// prefer specialcommitTasks
-		case task := <-sb.specialcommitTasks[cfg.RemoteID]:
-			log.Infof("specialcommitTasks SectorID: %d Type: %d RemoteID: %s", task.task.SectorID, task.task.Type, task.task.RemoteID)
+		// prefer sealTasks
+		case task := <- seal:
+			log.Infof("sealTasks SectorID: %d Type: %d RemoteID: %s", task.task.SectorID, task.task.Type, task.task.RemoteID)
+			sb.doTask(ctx, r, task)
+		case task := <- push:
+			log.Infof("pushTasks SectorID: %d Type: %d RemoteID: %s", task.task.SectorID, task.task.Type, task.task.RemoteID)
 			sb.doTask(ctx, r, task)
 		case <-ctx.Done():
 			return
