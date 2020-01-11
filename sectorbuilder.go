@@ -448,8 +448,6 @@ func (sb *SectorBuilder) sealPushDataRemote(call workerCall) (string, error) {
 }
 
 func (sb *SectorBuilder) SealPushData() (error) {
-	log.Info("SealPushData...")
-
 	var workernum = 0
 	for _, r := range sb.remotes {
 		if r.remoteStatus == WorkerPushData {
@@ -463,7 +461,6 @@ func (sb *SectorBuilder) SealPushData() (error) {
 	}
 
 	if sb.pushDataQueue == nil || sb.pushDataQueue.Len() == 0 {
-		log.Info("SealPushData...pushDataQueue is null:")
 		return nil
 	}
 
