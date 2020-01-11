@@ -475,7 +475,7 @@ func (sb *SectorBuilder) SealPushData() (error) {
 	sectorID := value.task.SectorID
 	remoteID := value.task.RemoteID
 
-	log.Info("SealPushData...", "workernum:", workernum," remoteID: ", remoteID,  " sectorID: ",sectorID)
+	log.Info("SealPushData...", "pushDataQueue:", sb.pushDataQueue.Len()," remoteID: ", remoteID,  " sectorID: ",sectorID)
 	sb.pushDataQueue.Remove(ele)
 
 	if sectorID == 0 || remoteID == "" {
@@ -498,8 +498,6 @@ func (sb *SectorBuilder) SealPushData() (error) {
 		return  xerrors.New("specialcommitTasks not find")
 	}
 
-	atomic.AddInt32(&sb.pushDataWait, 1)
-	log.Info("SealPushData...", "RemoteID: ", remoteID)
 	select { // prefer remote
 	case task <- call:
 		 sb.sealPushDataRemote(call)
@@ -655,6 +653,7 @@ func (sb *SectorBuilder) sealPreCommitRemote(call workerCall) (RawSealPreCommitO
 		if ret.Err != "" {
 			err = xerrors.New(ret.Err)
 		} else {
+			atomic.AddInt32(&sb.pushDataWait, 1)
 			sb.pushDataQueue.PushFront(call)
 		}
 		return ret.Rspco.rspco(), err
