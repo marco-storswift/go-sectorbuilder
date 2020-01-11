@@ -143,10 +143,8 @@ func (sb *SectorBuilder) remoteWorker(ctx context.Context, r *remote, cfg Worker
 
 
 		r.lk.Lock()
-		if r.remoteStatus >= WorkerCommit {
+		if r.remoteStatus == WorkerCommit {
 			r.remoteStatus = WorkerIdle
-		} else if r.remoteStatus >= WorkerAddPiece {
-			r.remoteStatus = r.remoteStatus + 1
 		}
 		r.lk.Unlock()
 	}
