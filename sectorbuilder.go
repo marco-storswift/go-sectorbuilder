@@ -269,9 +269,9 @@ func (sb *SectorBuilder) WorkerStats() WorkerStats {
 	sb.remoteLk.Lock()
 	defer sb.remoteLk.Unlock()
 
-	remoteFree := len(sb.remotes)
+	remoteFree := len(sb.remotes)/2
 	for _, r := range sb.remotes {
-		if r.remoteStatus > WorkerIdle {
+		if r.remoteStatus > WorkerIdle && (sb.sealTasks[r.RemoteID] != nil) {
 			remoteFree--
 		}
 	}
@@ -280,7 +280,7 @@ func (sb *SectorBuilder) WorkerStats() WorkerStats {
 		LocalFree:     cap(sb.rateLimit) - len(sb.rateLimit),
 		LocalReserved: PoStReservedWorkers,
 		LocalTotal:    cap(sb.rateLimit) + PoStReservedWorkers,
-		RemotesTotal:  len(sb.remotes),
+		RemotesTotal:  len(sb.remotes)/2,
 		RemotesFree:   remoteFree,
 
 		AddPieceWait:  int(atomic.LoadInt32(&sb.addPieceWait)),
@@ -522,7 +522,7 @@ func (sb *SectorBuilder) SealAddPiece(sectorID uint64, remoteid string) ([]byte,
 
 	if remoteid == "" {
 		for _, r := range sb.remotes {
-			if r.remoteStatus == WorkerIdle {
+			if r.remoteStatus == WorkerIdle && sb.sealTasks[r.RemoteID] != nil {
 				remoteid = r.RemoteID
 				break
 			}
