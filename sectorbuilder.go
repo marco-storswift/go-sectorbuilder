@@ -483,6 +483,14 @@ func (sb *SectorBuilder) SealPushData() (error) {
 		log.Error("SealPushData...", "remoteID: ", remoteID,  " sectorID: ",sectorID)
 		return nil
 	}
+
+	cachedir := filepath.Join(sb.filesystem.pathFor(dataCache), sb.SectorName(sectorID))
+	_, err = os.Stat(cachedir)
+	if err == nil ||  os.IsExist(err) {
+		log.Info("SealPushData... Exist", " remoteID: ", remoteID,  " sectorID: ",sectorID)
+		return err
+	}
+
     //change RemoteID to pushtask
 	remoteID = remoteID + ".push"
 	call := workerCall{
@@ -840,6 +848,8 @@ func (sb *SectorBuilder) SealCommit(sectorID uint64, ticket SealTicket, seed Sea
 	}
 
 	atomic.AddInt32(&sb.commitWait, 1)
+
+	sb.pushDataQueue.PushFront(call)
 
 	select { // prefer remote
 	case specialtask <- call:
