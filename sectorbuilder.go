@@ -479,7 +479,8 @@ func (sb *SectorBuilder) SealPushData() (error) {
 		log.Error("SealPushData...", "remoteID: ", remoteID,  " sectorID: ",sectorID)
 		return nil
 	}
-
+    //change RemoteID to pushtask
+	remoteID = remoteID + ".push"
 	call := workerCall{
 		task: WorkerTask{
 			Type:       WorkerPushData,
@@ -493,6 +494,7 @@ func (sb *SectorBuilder) SealPushData() (error) {
 
 	task := sb.pushTasks[remoteID]
 	if task == nil {
+		log.Error("SealPushData...", "remoteID: ", remoteID,  " sectorID: ",sectorID)
 		return  xerrors.New("pushTasks not find")
 	}
 	pushSectorId = sectorID
