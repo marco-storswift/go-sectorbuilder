@@ -465,7 +465,7 @@ func (sb *SectorBuilder) SealPushData() (error) {
 		return nil
 	}
 
-	ele := sb.pushDataQueue.Front()
+	ele := sb.pushDataQueue.Back()
 	if ele == nil {
 		log.Info("SealPushData... ele == nil  pushSectorNum:", pushSectorNum)
 		return nil
