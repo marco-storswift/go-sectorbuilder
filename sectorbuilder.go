@@ -55,7 +55,7 @@ type WorkerCfg struct {
 	// TODO: 'cost' info, probably in terms of sealing + transfer speed
 }
 
-var pushSectorId = uint64(0)
+var pushSectorNum = uint64(0)
 
 type SectorBuilder struct {
 	ds   datastore.Batching
@@ -83,7 +83,6 @@ type SectorBuilder struct {
 
 	addPieceWait  int32
 	preCommitWait int32
-	pushDataWait  int32
 	commitWait    int32
 	unsealWait    int32
 
@@ -92,6 +91,7 @@ type SectorBuilder struct {
 
 	stopping chan struct{}
 
+	pushLk sync.Mutex
 	pushDataQueue   *list.List
 }
 
@@ -285,7 +285,7 @@ func (sb *SectorBuilder) WorkerStats() WorkerStats {
 
 		AddPieceWait:  int(atomic.LoadInt32(&sb.addPieceWait)),
 		PreCommitWait: int(atomic.LoadInt32(&sb.preCommitWait)),
-		PushDataWait:  int(atomic.LoadInt32(&sb.pushDataWait)),
+		PushDataWait:  sb.pushDataQueue.Len(),
 		CommitWait:    int(atomic.LoadInt32(&sb.commitWait)),
 		UnsealWait:    int(atomic.LoadInt32(&sb.unsealWait)),
 	}
@@ -437,7 +437,6 @@ func (sb *SectorBuilder) SealAddPieceLocal(sectorID uint64, size uint64, hostfix
 
 func (sb *SectorBuilder) sealPushDataRemote(call workerCall) (string, error) {
 	log.Info("sealAddPieceRemote...", "sectorID:", call.task.SectorID, "  RemoteID:", call.task.RemoteID)
-	atomic.AddInt32(&sb.pushDataWait, -1)
 
 	select {
 	case ret := <-call.ret:
@@ -452,8 +451,13 @@ func (sb *SectorBuilder) sealPushDataRemote(call workerCall) (string, error) {
 }
 
 func (sb *SectorBuilder) SealPushData() (error) {
-	if pushSectorId != uint64(0) {
-		log.Info("SealPushData... in process  pushSectorId:", pushSectorId)
+	key := os.Getenv("SEAL_PUSH_DATA_NUM")
+	num, err := strconv.ParseUint(key, 10, 64)
+	if err != nil || num == uint64(0) {
+		num = 3
+	}
+	if pushSectorNum > num {
+		log.Info("SealPushData... in process  pushSectorNum:", pushSectorNum)
 		return nil
 	}
 
@@ -463,7 +467,7 @@ func (sb *SectorBuilder) SealPushData() (error) {
 
 	ele := sb.pushDataQueue.Front()
 	if ele == nil {
-		log.Info("SealPushData... ele == nil  pushSectorId:", pushSectorId)
+		log.Info("SealPushData... ele == nil  pushSectorNum:", pushSectorNum)
 		return nil
 	}
 
@@ -490,22 +494,25 @@ func (sb *SectorBuilder) SealPushData() (error) {
 		},
 		ret: make(chan SealRes),
 	}
-	atomic.AddInt32(&sb.pushDataWait, 1)
 
 	task := sb.pushTasks[remoteID]
 	if task == nil {
 		log.Error("SealPushData...", "remoteID: ", remoteID,  " sectorID: ",sectorID)
 		return  xerrors.New("pushTasks not find")
 	}
-	pushSectorId = sectorID
+
+	sb.pushLk.Lock()
+	pushSectorNum = pushSectorNum + 1
+	sb.pushLk.Unlock()
+
 	select { // prefer remote
 	case task <- call:
 		 sb.sealPushDataRemote(call)
-		 pushSectorId = uint64(0)
+		 sb.pushLk.Lock()
+		 pushSectorNum = pushSectorNum - 1
+		 sb.pushLk.Unlock()
 		 return nil
 	default:
-		pushSectorId = uint64(0)
-		return nil
 	}
 
 	return nil
