@@ -456,7 +456,7 @@ func (sb *SectorBuilder) sealPushDataRemote(call workerCall) (string, error) {
 	}
 }
 
-func (sb *SectorBuilder) SealPushData() (error) {
+func (sb *SectorBuilder) DealPushData() (error) {
 	key := os.Getenv("SEAL_PUSH_DATA_NUM")
 	num, err := strconv.ParseUint(key, 10, 64)
 	if err != nil || num == uint64(0) {
