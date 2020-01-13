@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -91,8 +92,8 @@ type SectorBuilder struct {
 
 	stopping chan struct{}
 
-	pushLk sync.Mutex
-	pushDataQueue   *list.List
+	pushLk        sync.Mutex
+	PushDataQueue *list.List
 }
 
 type JsonRSPCO struct {
@@ -199,7 +200,7 @@ func New(cfg *Config, ds datastore.Batching) (*SectorBuilder, error) {
 
 		stopping: make(chan struct{}),
 
-		pushDataQueue:  list.New(),
+		PushDataQueue: list.New(),
 	}
 
 	if err := sb.filesystem.init(); err != nil {
@@ -218,13 +219,13 @@ func NewStandalone(cfg *Config) (*SectorBuilder, error) {
 		Miner:      cfg.Miner,
 		filesystem: openFs(cfg.Dir),
 
-		taskCtr:   1,
-		noCommit : false,
-		noPreCommit: false,
-		remotes:   map[string]*remote{},
-		rateLimit: make(chan struct{}, cfg.WorkerThreads),
-		stopping:  make(chan struct{}),
-		pushDataQueue:  list.New(),
+		taskCtr:       1,
+		noCommit :     false,
+		noPreCommit:   false,
+		remotes:       map[string]*remote{},
+		rateLimit:     make(chan struct{}, cfg.WorkerThreads),
+		stopping:      make(chan struct{}),
+		PushDataQueue: list.New(),
 	}
 
 	if err := sb.filesystem.init(); err != nil {
@@ -285,7 +286,7 @@ func (sb *SectorBuilder) WorkerStats() WorkerStats {
 
 		AddPieceWait:  int(atomic.LoadInt32(&sb.addPieceWait)),
 		PreCommitWait: int(atomic.LoadInt32(&sb.preCommitWait)),
-		PushDataWait:  sb.pushDataQueue.Len(),
+		PushDataWait:  sb.PushDataQueue.Len(),
 		CommitWait:    int(atomic.LoadInt32(&sb.commitWait)),
 		UnsealWait:    int(atomic.LoadInt32(&sb.unsealWait)),
 	}
@@ -461,23 +462,24 @@ func (sb *SectorBuilder) SealPushData() (error) {
 		return nil
 	}
 
-	if sb.pushDataQueue == nil || sb.pushDataQueue.Len() == 0 {
+	if sb.PushDataQueue == nil || sb.PushDataQueue.Len() == 0 {
 		return nil
 	}
 
-	ele := sb.pushDataQueue.Back()
+	ele := sb.PushDataQueue.Back()
 	if ele == nil {
 		log.Info("SealPushData... ele == nil  pushSectorNum:", pushSectorNum)
 		return nil
 	}
 
-	value := ele.Value.(workerCall)
+	value := ele.Value.(string)
 	log.Info("SealPushData...", "pushDataQueue: ", value)
-	sectorID := value.task.SectorID
-	remoteID := value.task.RemoteID
+	ids := strings.Split(value,"-")
+	remoteID := ids[0]
+	sectorID, err := strconv.ParseUint(ids[1], 10, 64)
 
-	log.Info("SealPushData...", "pushDataQueue:", sb.pushDataQueue.Len(), " worknum:", num," remoteID: ", remoteID,  " sectorID: ",sectorID)
-	sb.pushDataQueue.Remove(ele)
+	log.Info("SealPushData...", "pushDataQueue:", sb.PushDataQueue.Len(), " worknum:", num," remoteID: ", remoteID,  " sectorID: ",sectorID)
+	sb.PushDataQueue.Remove(ele)
 
 	if sectorID == 0 || remoteID == "" {
 		log.Error("SealPushData...", "remoteID: ", remoteID,  " sectorID: ",sectorID)
@@ -671,7 +673,7 @@ func (sb *SectorBuilder) sealPreCommitRemote(call workerCall) (RawSealPreCommitO
 		if ret.Err != "" {
 			err = xerrors.New(ret.Err)
 		} else {
-			sb.pushDataQueue.PushFront(call)
+			sb.PushDataQueue.PushFront(call.task.RemoteID + "-" + string(call.task.SectorID))
 		}
 		return ret.Rspco.rspco(), err
 	case <-sb.stopping:
@@ -849,7 +851,7 @@ func (sb *SectorBuilder) SealCommit(sectorID uint64, ticket SealTicket, seed Sea
 
 	atomic.AddInt32(&sb.commitWait, 1)
 
-	sb.pushDataQueue.PushFront(call)
+	sb.PushDataQueue.PushFront(remoteid + "-" + string(sectorID))
 
 	select { // prefer remote
 	case specialtask <- call:
