@@ -529,7 +529,6 @@ func (sb *SectorBuilder) SealPushData() (error) {
 	sb.pushLk.Lock()
 	pushSectorNum = pushSectorNum + 1
 	sb.pushLk.Unlock()
-	sb.PushDataQueue.Remove(ele)
 
 	select { // prefer remote
 	case task <- call:
