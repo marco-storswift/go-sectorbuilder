@@ -468,6 +468,7 @@ func (sb *SectorBuilder) SealPushData() (error) {
 
 	var remoteID = ""
 	var sectorID = uint64(0)
+	var sector *list.Element
 	for i := 0; i < sb.PushDataQueue.Len(); i++ {
 		ele := sb.PushDataQueue.Back()
 		if ele == nil {
@@ -498,6 +499,7 @@ func (sb *SectorBuilder) SealPushData() (error) {
 		{
 			remoteID = tempremoteID
 			sectorID = tempsectorID
+			sector = ele
 			log.Info("SealPushData...", "pushDataQueue:", sb.PushDataQueue.Len(), " worknum:", num," remoteID: ", remoteID,  " sectorID: ",sectorID)
 			break
 		}
@@ -527,6 +529,7 @@ func (sb *SectorBuilder) SealPushData() (error) {
 		return  xerrors.New("pushTasks not find")
 	}
 
+	sb.PushDataQueue.Remove(sector)
 	sb.pushLk.Lock()
 	pushSectorNum = pushSectorNum + 1
 	sb.pushLk.Unlock()
