@@ -14,18 +14,17 @@ import (
 	"sync/atomic"
 
 	sectorbuilder "github.com/filecoin-project/filecoin-ffi"
-	"github.com/ipfs/go-datastore"
+	"github.com/filecoin-project/go-address"
+	datastore "github.com/ipfs/go-datastore"
 	logging "github.com/ipfs/go-log"
 	dcopy "github.com/otiai10/copy"
 	"golang.org/x/xerrors"
-
-	"github.com/filecoin-project/go-address"
 )
 
 const PoStReservedWorkers = 1
 const PoRepProofPartitions = 10
 
-var lastSectorIdKey = datastore.NewKey("/sectorbuilder/last")
+var lastSectorIdKey = datastore.NewKey("/last")
 
 var log = logging.Logger("sectorbuilder")
 
@@ -261,7 +260,7 @@ type WorkerStats struct {
 
 	AddPieceWait  int
 	PreCommitWait int
-	PushDataWait int
+	PushDataWait  int
 	CommitWait    int
 	UnsealWait    int
 }
@@ -744,6 +743,7 @@ func (sb *SectorBuilder) SealPreCommitLocal(sectorID uint64, ticket SealTicket, 
 
 	stagedPath := sb.StagedSectorPath(sectorID)
 
+	// TODO: context cancellation respect
 	rspco, err := sectorbuilder.SealPreCommit(
 		sb.ssize,
 		PoRepProofPartitions,
