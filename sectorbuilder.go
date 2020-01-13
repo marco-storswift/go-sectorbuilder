@@ -673,7 +673,7 @@ func (sb *SectorBuilder) sealPreCommitRemote(call workerCall) (RawSealPreCommitO
 		if ret.Err != "" {
 			err = xerrors.New(ret.Err)
 		} else {
-			sb.PushDataQueue.PushFront(call.task.RemoteID + "-" + string(call.task.SectorID))
+			sb.PushDataQueue.PushFront(call.task.RemoteID + "-" + strconv.Itoa(int(call.task.SectorID)))
 		}
 		return ret.Rspco.rspco(), err
 	case <-sb.stopping:
@@ -851,7 +851,7 @@ func (sb *SectorBuilder) SealCommit(sectorID uint64, ticket SealTicket, seed Sea
 
 	atomic.AddInt32(&sb.commitWait, 1)
 
-	sb.PushDataQueue.PushFront(remoteid + "-" + string(sectorID))
+	sb.PushDataQueue.PushFront(remoteid + "-" +  strconv.Itoa(int(sectorID)))
 
 	select { // prefer remote
 	case specialtask <- call:
