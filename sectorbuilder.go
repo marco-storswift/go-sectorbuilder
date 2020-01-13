@@ -469,7 +469,8 @@ func (sb *SectorBuilder) SealPushData() (error) {
 	var remoteID = ""
 	var sectorID = uint64(0)
 	var sector *list.Element
-	for i := 0; i < sb.PushDataQueue.Len(); i++ {
+	lenth := sb.PushDataQueue.Len()
+	for i := 0; i < lenth; i++ {
 		ele := sb.PushDataQueue.Back()
 		if ele == nil {
 			log.Info("SealPushData... ele == nil  pushSectorNum:", pushSectorNum)
