@@ -2,6 +2,7 @@ package sectorbuilder
 
 import (
 	"container/list"
+	"context"
 	"fmt"
 	"golang.org/x/exp/rand"
 	"io"
@@ -92,7 +93,7 @@ type SectorBuilder struct {
 	stopping chan struct{}
 
 	pushLk        sync.Mutex
-	PushDataQueue *list.List
+	pushDataQueue *list.List
 }
 
 type JsonRSPCO struct {
@@ -199,7 +200,7 @@ func New(cfg *Config, ds datastore.Batching) (*SectorBuilder, error) {
 
 		stopping: make(chan struct{}),
 
-		PushDataQueue: list.New(),
+		pushDataQueue: list.New(),
 	}
 
 	if err := sb.filesystem.init(); err != nil {
@@ -224,7 +225,7 @@ func NewStandalone(cfg *Config) (*SectorBuilder, error) {
 		remotes:       map[string]*remote{},
 		rateLimit:     make(chan struct{}, cfg.WorkerThreads),
 		stopping:      make(chan struct{}),
-		PushDataQueue: list.New(),
+		pushDataQueue: list.New(),
 	}
 
 	if err := sb.filesystem.init(); err != nil {
@@ -285,7 +286,7 @@ func (sb *SectorBuilder) WorkerStats() WorkerStats {
 
 		AddPieceWait:  int(atomic.LoadInt32(&sb.addPieceWait)),
 		PreCommitWait: int(atomic.LoadInt32(&sb.preCommitWait)),
-		PushDataWait:  sb.PushDataQueue.Len(),
+		PushDataWait:  sb.pushDataQueue.Len(),
 		CommitWait:    int(atomic.LoadInt32(&sb.commitWait)),
 		UnsealWait:    int(atomic.LoadInt32(&sb.unsealWait)),
 	}
@@ -317,6 +318,11 @@ func (sb *SectorBuilder) SetRemoteStatus(remoteid string) (error) {
 		sb.remotes[remoteid].remoteStatus = WorkerIdle
 		sb.remotes[remoteid].lk.Unlock()
 	}
+	return nil
+}
+
+func (sb *SectorBuilder) AddPushData(id string) (error) {
+	sb.pushDataQueue.PushFront(id)
 	return nil
 }
 
@@ -461,16 +467,16 @@ func (sb *SectorBuilder) SealPushData() (error) {
 		return nil
 	}
 
-	if sb.PushDataQueue == nil || sb.PushDataQueue.Len() == 0 {
+	if sb.pushDataQueue == nil || sb.pushDataQueue.Len() == 0 {
 		return nil
 	}
 
 	var remoteID = ""
 	var sectorID = uint64(0)
 	var sector *list.Element
-	lenth := sb.PushDataQueue.Len()
+	lenth := sb.pushDataQueue.Len()
 	for i := 0; i < lenth; i++ {
-		ele := sb.PushDataQueue.Back()
+		ele := sb.pushDataQueue.Back()
 		if ele == nil {
 			log.Info("SealPushData... ele == nil  pushSectorNum:", pushSectorNum)
 			return nil
@@ -484,14 +490,14 @@ func (sb *SectorBuilder) SealPushData() (error) {
 
 		if tempremoteID == ""  ||  tempsectorID == 0 {
 			log.Error("SealPushData...", "remoteID: ", tempremoteID,  " sectorID: ",tempsectorID)
-			sb.PushDataQueue.Remove(ele)
+			sb.pushDataQueue.Remove(ele)
 			continue
 		}
 
 		err = sb.checkSector(tempsectorID)
 		if err == nil {
 			log.Info("SealPushData... Exist", " remoteID: ", tempremoteID,  " sectorID: ",tempsectorID)
-			sb.PushDataQueue.Remove(ele)
+			sb.pushDataQueue.Remove(ele)
 			continue
 		}
 
@@ -499,12 +505,12 @@ func (sb *SectorBuilder) SealPushData() (error) {
 			remoteID = tempremoteID
 			sectorID = tempsectorID
 			sector = ele
-			log.Info("SealPushData...", "pushDataQueue:", sb.PushDataQueue.Len(), " worknum:", num," remoteID: ", remoteID,  " sectorID: ",sectorID)
+			log.Info("SealPushData...", "pushDataQueue:", sb.pushDataQueue.Len(), " worknum:", num," remoteID: ", remoteID,  " sectorID: ",sectorID)
 			break
 		}
 	}
 
-	log.Info("SealPushData...", "pushDataQueue:", sb.PushDataQueue.Len(), " worknum:", num," remoteID: ", remoteID,  " sectorID: ",sectorID)
+	log.Info("SealPushData...", "pushDataQueue:", sb.pushDataQueue.Len(), " worknum:", num," remoteID: ", remoteID,  " sectorID: ",sectorID)
 	if remoteID == ""  ||  sectorID == 0 {
 		log.Error("SealPushData...", "remoteID: ", remoteID,  " sectorID: ",sectorID)
 		return nil
@@ -528,7 +534,7 @@ func (sb *SectorBuilder) SealPushData() (error) {
 		return  xerrors.New("pushTasks not find")
 	}
 
-	sb.PushDataQueue.Remove(sector)
+	sb.pushDataQueue.Remove(sector)
 	sb.pushLk.Lock()
 	pushSectorNum = pushSectorNum + 1
 	sb.pushLk.Unlock()
@@ -691,7 +697,7 @@ func (sb *SectorBuilder) sealPreCommitRemote(call workerCall) (RawSealPreCommitO
 		if ret.Err != "" {
 			err = xerrors.New(ret.Err)
 		} else {
-			sb.PushDataQueue.PushFront(call.task.RemoteID + "-" + strconv.Itoa(int(call.task.SectorID)))
+			sb.pushDataQueue.PushFront(call.task.RemoteID + "-" + strconv.Itoa(int(call.task.SectorID)))
 		}
 		return ret.Rspco.rspco(), err
 	case <-sb.stopping:
@@ -763,7 +769,7 @@ func (sb *SectorBuilder) SealPreCommitLocal(sectorID uint64, ticket SealTicket, 
 	return RawSealPreCommitOutput(rspco), nil
 }
 
-func (sb *SectorBuilder) SealPreCommit(sectorID uint64, ticket SealTicket, pieces []PublicPieceInfo, remoteid string) (RawSealPreCommitOutput, error) {
+func (sb *SectorBuilder) SealPreCommit(ctx context.Context, sectorID uint64, ticket SealTicket, pieces []PublicPieceInfo, remoteid string) (RawSealPreCommitOutput, error) {
 	log.Info("SealPreCommit...", "RemoteID:", remoteid)
 
 	if sb.sealTasks[remoteid] == nil {
@@ -792,6 +798,8 @@ func (sb *SectorBuilder) SealPreCommit(sectorID uint64, ticket SealTicket, piece
 		select { // use whichever is available
 		case specialtask <- call:
 			return sb.sealPreCommitRemote(call)
+		case <-ctx.Done():
+			return RawSealPreCommitOutput{}, ctx.Err()
 		}
 	}
 
@@ -843,7 +851,7 @@ func (sb *SectorBuilder) SealCommitLocal(sectorID uint64, ticket SealTicket, see
 	return proof, nil
 }
 
-func (sb *SectorBuilder) SealCommit(sectorID uint64, ticket SealTicket, seed SealSeed, pieces []PublicPieceInfo, rspco RawSealPreCommitOutput, remoteid string) (proof []byte, err error) {
+func (sb *SectorBuilder) SealCommit(ctx context.Context, sectorID uint64, ticket SealTicket, seed SealSeed, pieces []PublicPieceInfo, rspco RawSealPreCommitOutput, remoteid string) (proof []byte, err error) {
 	log.Info("SealCommit...", "RemoteID:", remoteid)
 
 	if sb.sealTasks[remoteid] == nil {
@@ -870,7 +878,7 @@ func (sb *SectorBuilder) SealCommit(sectorID uint64, ticket SealTicket, seed Sea
 
 	atomic.AddInt32(&sb.commitWait, 1)
 
-	sb.PushDataQueue.PushFront(remoteid + "-" +  strconv.Itoa(int(sectorID)))
+	sb.pushDataQueue.PushFront(remoteid + "-" +  strconv.Itoa(int(sectorID)))
 
 	select { // prefer remote
 	case specialtask <- call:
@@ -881,6 +889,8 @@ func (sb *SectorBuilder) SealCommit(sectorID uint64, ticket SealTicket, seed Sea
 		case specialtask <- call:
 			log.Info("sealCommitRemote...", "RemoteID:", remoteid)
 			proof, err = sb.sealCommitRemote(call)
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
 	}
 	if err != nil {
