@@ -466,36 +466,49 @@ func (sb *SectorBuilder) SealPushData() (error) {
 		return nil
 	}
 
-	ele := sb.PushDataQueue.Back()
-	if ele == nil {
-		log.Info("SealPushData... ele == nil  pushSectorNum:", pushSectorNum)
-		return nil
-	}
+	remoteID := ""
+	sectorID := uint64(0)
+	for i := 0; i < sb.PushDataQueue.Len(); i++ {
+		ele := sb.PushDataQueue.Back()
+		if ele == nil {
+			log.Info("SealPushData... ele == nil  pushSectorNum:", pushSectorNum)
+			return nil
+		}
 
-	value := ele.Value.(string)
-	log.Info("SealPushData...", "pushDataQueue: ", value)
-	ids := strings.Split(value,"-")
-	remoteID := ids[0]
-	sectorID, err := strconv.ParseUint(ids[1], 10, 64)
+		value := ele.Value.(string)
+		log.Info("SealPushData...", "pushDataQueue: ", value)
+		ids := strings.Split(value,"-")
+		tempremoteID := ids[0]
+		tempsectorID, err := strconv.ParseUint(ids[1], 10, 64)
+
+		if tempremoteID == ""  ||  tempsectorID == 0 {
+			log.Error("SealPushData...", "remoteID: ", tempremoteID,  " sectorID: ",tempsectorID)
+			sb.PushDataQueue.Remove(ele)
+			continue
+		}
+
+		cachedir := filepath.Join(sb.filesystem.pathFor(dataCache), sb.SectorName(tempsectorID))
+		_, err = os.Stat(cachedir)
+		if err == nil ||  os.IsExist(err) {
+			log.Info("SealPushData... Exist", " remoteID: ", tempremoteID,  " sectorID: ",tempsectorID)
+			sb.PushDataQueue.Remove(ele)
+			continue
+		}
+
+		{
+			remoteID = tempremoteID
+			sectorID = tempsectorID
+			break
+		}
+	}
 
 	log.Info("SealPushData...", "pushDataQueue:", sb.PushDataQueue.Len(), " worknum:", num," remoteID: ", remoteID,  " sectorID: ",sectorID)
-
-
-	if sectorID == 0 || remoteID == "" {
+	if remoteID == ""  ||  sectorID == 0 {
 		log.Error("SealPushData...", "remoteID: ", remoteID,  " sectorID: ",sectorID)
-		sb.PushDataQueue.Remove(ele)
 		return nil
 	}
 
-	cachedir := filepath.Join(sb.filesystem.pathFor(dataCache), sb.SectorName(sectorID))
-	_, err = os.Stat(cachedir)
-	if err == nil ||  os.IsExist(err) {
-		log.Info("SealPushData... Exist", " remoteID: ", remoteID,  " sectorID: ",sectorID)
-		sb.PushDataQueue.Remove(ele)
-		return err
-	}
-
-    //change RemoteID to pushtask
+	//change RemoteID to pushtask
 	remoteID = remoteID + ".push"
 	call := workerCall{
 		task: WorkerTask{
