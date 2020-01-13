@@ -489,9 +489,8 @@ func (sb *SectorBuilder) SealPushData() (error) {
 			continue
 		}
 
-		cachedir := filepath.Join(sb.filesystem.pathFor(dataCache), sb.SectorName(tempsectorID))
-		_, err = os.Stat(cachedir)
-		if err == nil ||  os.IsExist(err) {
+		err = sb.checkSector(tempsectorID)
+		if err == nil {
 			log.Info("SealPushData... Exist", " remoteID: ", tempremoteID,  " sectorID: ",tempsectorID)
 			sb.PushDataQueue.Remove(ele)
 			continue
