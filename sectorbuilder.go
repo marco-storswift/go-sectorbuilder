@@ -552,7 +552,7 @@ func (sb *SectorBuilder) SealPushData() (error) {
 	return nil
 }
 
-func (sb *SectorBuilder) SealAddPiece(sectorID uint64, remoteid string) ([]byte, string, error) {
+func (sb *SectorBuilder) SealAddPiece(ctx context.Context, sectorID uint64, remoteid string) ([]byte, string, error) {
 	log.Info("SealAddPiece...", "sectorID: ", sectorID)
 	call := workerCall{
 		task: WorkerTask{
@@ -602,6 +602,8 @@ func (sb *SectorBuilder) SealAddPiece(sectorID uint64, remoteid string) ([]byte,
 			case task <- call:
 				log.Info("sealAddPieceRemote...", "sectorID:", sectorID)
 				return sb.sealAddPieceRemote(call)
+			case <-ctx.Done():
+				return nil, "", ctx.Err()
 			}
 		}
 	}
