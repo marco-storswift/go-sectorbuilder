@@ -476,7 +476,7 @@ func (sb *SectorBuilder) SealPushData() (error) {
 	sectorID := value.task.SectorID
 	remoteID := value.task.RemoteID
 
-	log.Info("SealPushData...", "pushDataQueue:", sb.pushDataQueue.Len()," remoteID: ", remoteID,  " sectorID: ",sectorID)
+	log.Info("SealPushData...", "pushDataQueue:", sb.pushDataQueue.Len(), " worknum:", num," remoteID: ", remoteID,  " sectorID: ",sectorID)
 	sb.pushDataQueue.Remove(ele)
 
 	if sectorID == 0 || remoteID == "" {
