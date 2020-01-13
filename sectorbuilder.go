@@ -479,10 +479,11 @@ func (sb *SectorBuilder) SealPushData() (error) {
 	sectorID, err := strconv.ParseUint(ids[1], 10, 64)
 
 	log.Info("SealPushData...", "pushDataQueue:", sb.PushDataQueue.Len(), " worknum:", num," remoteID: ", remoteID,  " sectorID: ",sectorID)
-	sb.PushDataQueue.Remove(ele)
+
 
 	if sectorID == 0 || remoteID == "" {
 		log.Error("SealPushData...", "remoteID: ", remoteID,  " sectorID: ",sectorID)
+		sb.PushDataQueue.Remove(ele)
 		return nil
 	}
 
@@ -490,6 +491,7 @@ func (sb *SectorBuilder) SealPushData() (error) {
 	_, err = os.Stat(cachedir)
 	if err == nil ||  os.IsExist(err) {
 		log.Info("SealPushData... Exist", " remoteID: ", remoteID,  " sectorID: ",sectorID)
+		sb.PushDataQueue.Remove(ele)
 		return err
 	}
 
@@ -514,6 +516,7 @@ func (sb *SectorBuilder) SealPushData() (error) {
 	sb.pushLk.Lock()
 	pushSectorNum = pushSectorNum + 1
 	sb.pushLk.Unlock()
+	sb.PushDataQueue.Remove(ele)
 
 	select { // prefer remote
 	case task <- call:
