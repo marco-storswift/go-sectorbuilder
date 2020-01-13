@@ -466,8 +466,8 @@ func (sb *SectorBuilder) SealPushData() (error) {
 		return nil
 	}
 
-	remoteID := ""
-	sectorID := uint64(0)
+	var remoteID = ""
+	var sectorID = uint64(0)
 	for i := 0; i < sb.PushDataQueue.Len(); i++ {
 		ele := sb.PushDataQueue.Back()
 		if ele == nil {
@@ -498,6 +498,7 @@ func (sb *SectorBuilder) SealPushData() (error) {
 		{
 			remoteID = tempremoteID
 			sectorID = tempsectorID
+			log.Info("SealPushData...", "pushDataQueue:", sb.PushDataQueue.Len(), " worknum:", num," remoteID: ", remoteID,  " sectorID: ",sectorID)
 			break
 		}
 	}
