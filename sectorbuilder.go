@@ -960,7 +960,7 @@ func (sb *SectorBuilder) pubSectorToPriv(sectorInfo SortedPublicSectorInfo, faul
 			SealedSectorPath: sealedPath,
 		})
 	}
-	return NewSortedPrivateSectorInfo(out), nil
+	return newSortedPrivateSectorInfo(out), nil
 }
 
 func (sb *SectorBuilder) GenerateFallbackPoSt(sectorInfo SortedPublicSectorInfo, challengeSeed [CommLen]byte, faults []uint64) ([]EPostCandidate, []byte, error) {
@@ -1008,6 +1008,10 @@ func (sb *SectorBuilder) ImportFrom(osb *SectorBuilder, symlink bool) error {
 
 	val, err := osb.ds.Get(lastSectorIdKey)
 	if err != nil {
+		if err == datastore.ErrNotFound {
+			log.Warnf("CAUTION: last sector ID not found in previous datastore")
+			return nil
+		}
 		return err
 	}
 
