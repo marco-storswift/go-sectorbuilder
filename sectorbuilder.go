@@ -704,6 +704,7 @@ func (sb *SectorBuilder) sealPreCommitRemote(call workerCall) (RawSealPreCommitO
 			err = xerrors.New(ret.Err)
 		} else {
 			sb.pushDataQueue.PushFront(call.task.RemoteID + "-" + strconv.Itoa(int(call.task.SectorID)))
+			go sb.DealPushData()
 		}
 		return ret.Rspco.rspco(), err
 	case <-sb.stopping:
