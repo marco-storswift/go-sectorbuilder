@@ -57,7 +57,6 @@ type WorkerCfg struct {
 }
 
 var pushSectorNum = uint64(0)
-var times = uint64(0)
 
 type SectorBuilder struct {
 	ds   datastore.Batching
@@ -447,6 +446,7 @@ func (sb *SectorBuilder) sealPushDataRemote(call workerCall) (string, error) {
 		sb.pushLk.Lock()
 		pushSectorNum = pushSectorNum - 1
 		sb.pushLk.Unlock()
+		go sb.DealPushData()
 	}()
 
 	log.Info("sealAddPieceRemote...", "sectorID:", call.task.SectorID, "  RemoteID:", call.task.RemoteID)
@@ -472,19 +472,8 @@ func (sb *SectorBuilder) DealPushData() (error) {
 	if err != nil || num == uint64(0) {
 		num = 3
 	}
-
-	limit:= uint64(20)
 	if pushSectorNum >= num {
-		times = times + 1
-		log.Infof("SealPushData... in process  pushSectorNum:%d %d %d", pushSectorNum, times, num)
-		if times > limit {
-			times = 0
-			if  pushSectorNum >  num {
-				sb.pushLk.Lock()
-				pushSectorNum = pushSectorNum - 1
-				sb.pushLk.Unlock()
-			}
-		}
+		log.Infof("SealPushData... in process  pushSectorNum:%d num:%d ", pushSectorNum, num)
 		return nil
 	}
 
@@ -551,7 +540,7 @@ func (sb *SectorBuilder) DealPushData() (error) {
 
 	task := sb.pushTasks[remoteID]
 	if task == nil {
-		log.Error("SealPushData...", "remoteID: ", remoteID,  " sectorID: ",sectorID)
+		log.Warn("SealPushData...", "remoteID: ", remoteID,  " sectorID: ",sectorID)
 		return  xerrors.New("pushTasks not find")
 	}
 
