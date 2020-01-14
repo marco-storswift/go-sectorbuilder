@@ -57,6 +57,7 @@ type WorkerCfg struct {
 }
 
 var pushSectorNum = uint64(0)
+var times = uint64(0)
 
 type SectorBuilder struct {
 	ds   datastore.Batching
@@ -442,6 +443,12 @@ func (sb *SectorBuilder) SealAddPieceLocal(sectorID uint64, size uint64, hostfix
 }
 
 func (sb *SectorBuilder) sealPushDataRemote(call workerCall) (string, error) {
+	defer func() {
+		sb.pushLk.Lock()
+		pushSectorNum = pushSectorNum - 1
+		sb.pushLk.Unlock()
+	}()
+
 	log.Info("sealAddPieceRemote...", "sectorID:", call.task.SectorID, "  RemoteID:", call.task.RemoteID)
 
 	select {
@@ -462,8 +469,19 @@ func (sb *SectorBuilder) DealPushData() (error) {
 	if err != nil || num == uint64(0) {
 		num = 3
 	}
-	if pushSectorNum > num {
+
+	limit:= uint64(30)
+	if pushSectorNum >= num {
+		times = times + 1
 		log.Info("SealPushData... in process  pushSectorNum:", pushSectorNum)
+		if times > limit {
+			times = 0
+			if  pushSectorNum >  num {
+				sb.pushLk.Lock()
+				pushSectorNum = pushSectorNum - 1
+				sb.pushLk.Unlock()
+			}
+		}
 		return nil
 	}
 
@@ -535,6 +553,7 @@ func (sb *SectorBuilder) DealPushData() (error) {
 	}
 
 	sb.pushDataQueue.Remove(sector)
+
 	sb.pushLk.Lock()
 	pushSectorNum = pushSectorNum + 1
 	sb.pushLk.Unlock()
@@ -542,9 +561,6 @@ func (sb *SectorBuilder) DealPushData() (error) {
 	select { // prefer remote
 	case task <- call:
 		 sb.sealPushDataRemote(call)
-		 sb.pushLk.Lock()
-		 pushSectorNum = pushSectorNum - 1
-		 sb.pushLk.Unlock()
 		 return nil
 	default:
 	}
