@@ -450,6 +450,9 @@ func (sb *SectorBuilder) sealPushDataRemote(call workerCall) (string, error) {
 	}()
 
 	log.Info("sealAddPieceRemote...", "sectorID:", call.task.SectorID, "  RemoteID:", call.task.RemoteID)
+	sb.pushLk.Lock()
+	pushSectorNum = pushSectorNum + 1
+	sb.pushLk.Unlock()
 
 	select {
 	case ret := <-call.ret:
@@ -470,10 +473,10 @@ func (sb *SectorBuilder) DealPushData() (error) {
 		num = 3
 	}
 
-	limit:= uint64(30)
+	limit:= uint64(20)
 	if pushSectorNum >= num {
 		times = times + 1
-		log.Info("SealPushData... in process  pushSectorNum:", pushSectorNum)
+		log.Infof("SealPushData... in process  pushSectorNum:%d %d %d", pushSectorNum, times, num)
 		if times > limit {
 			times = 0
 			if  pushSectorNum >  num {
@@ -530,7 +533,7 @@ func (sb *SectorBuilder) DealPushData() (error) {
 
 	log.Info("SealPushData...", "pushDataQueue:", sb.pushDataQueue.Len(), " worknum:", num," remoteID: ", remoteID,  " sectorID: ",sectorID)
 	if remoteID == ""  ||  sectorID == 0 {
-		log.Error("SealPushData...", "remoteID: ", remoteID,  " sectorID: ",sectorID)
+		log.Warn("SealPushData...", "remoteID: ", remoteID,  " sectorID: ",sectorID)
 		return nil
 	}
 
@@ -553,10 +556,6 @@ func (sb *SectorBuilder) DealPushData() (error) {
 	}
 
 	sb.pushDataQueue.Remove(sector)
-
-	sb.pushLk.Lock()
-	pushSectorNum = pushSectorNum + 1
-	sb.pushLk.Unlock()
 
 	select { // prefer remote
 	case task <- call:
