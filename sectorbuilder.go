@@ -504,7 +504,7 @@ func (sb *SectorBuilder) DealPushData() (error) {
 			continue
 		}
 
-		err = sb.checkSector(tempsectorID)
+		err = sb.CheckSector(tempsectorID)
 		if err == nil {
 			log.Info("SealPushData... Exist", " remoteID: ", tempremoteID,  " sectorID: ",tempsectorID)
 			sb.pushDataQueue.Remove(ele)
@@ -703,7 +703,7 @@ func (sb *SectorBuilder) sealPreCommitRemote(call workerCall) (RawSealPreCommitO
 		if ret.Err != "" {
 			err = xerrors.New(ret.Err)
 		} else {
-			sb.pushDataQueue.PushFront(call.task.RemoteID + "-" + strconv.Itoa(int(call.task.SectorID)))
+			sb.AddPushData(call.task.RemoteID + "-" + strconv.Itoa(int(call.task.SectorID)))
 			go sb.DealPushData()
 		}
 		return ret.Rspco.rspco(), err
@@ -885,21 +885,24 @@ func (sb *SectorBuilder) SealCommit(ctx context.Context, sectorID uint64, ticket
 
 	atomic.AddInt32(&sb.commitWait, 1)
 
-	sb.pushDataQueue.PushFront(remoteid + "-" +  strconv.Itoa(int(sectorID)))
+	err = sb.CheckSector(sectorID)
+	if err != nil {
+		sb.AddPushData(remoteid + "-" +  strconv.Itoa(int(sectorID)))
+	}
 
-	select { // prefer remote
+	//TODO change to 40
+	//if sb.pushDataQueue.Len() > 2 {
+	//	return nil, xerrors.Errorf("PushDataQueueMax")
+	//}
+
+	select { // use whichever is available
 	case specialtask <- call:
 		log.Info("sealCommitRemote...", "RemoteID:", remoteid)
 		proof, err = sb.sealCommitRemote(call)
-	default:
-		select { // use whichever is available
-		case specialtask <- call:
-			log.Info("sealCommitRemote...", "RemoteID:", remoteid)
-			proof, err = sb.sealCommitRemote(call)
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
+
 	if err != nil {
 		return nil, xerrors.Errorf("commit: %w", err)
 	}

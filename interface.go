@@ -33,6 +33,7 @@ type Interface interface {
 	DealPushData() error
 	AddPushData(string) error
 	SetRemoteStatus(string) error
+	CheckSector(uint64) error
 
 }
 
