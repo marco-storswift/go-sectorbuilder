@@ -493,7 +493,7 @@ func (sb *SectorBuilder) DealPushData() (error) {
 		}
 
 		value := ele.Value.(string)
-		log.Info("SealPushData...", "pushDataQueue: ", value)
+		log.Info("SealPushData...", "pushDataQueue: ", sb.pushDataQueue)
 		ids := strings.Split(value,"-")
 		tempremoteID := ids[0]
 		tempsectorID, err := strconv.ParseUint(ids[1], 10, 64)
@@ -515,7 +515,6 @@ func (sb *SectorBuilder) DealPushData() (error) {
 			remoteID = tempremoteID
 			sectorID = tempsectorID
 			sector = ele
-			log.Info("SealPushData...", "pushDataQueue:", sb.pushDataQueue.Len(), " worknum:", num," remoteID: ", remoteID,  " sectorID: ",sectorID)
 			break
 		}
 	}
