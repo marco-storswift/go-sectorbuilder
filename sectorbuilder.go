@@ -511,6 +511,14 @@ func (sb *SectorBuilder) DealPushData() (error) {
 			continue
 		}
 
+		pushid := remoteID + ".push"
+		task := sb.pushTasks[pushid]
+		if task == nil {
+			log.Warn("SealPushData...pushTasks is nil", "remoteID: ", pushid,  " sectorID: ",sectorID)
+			sb.pushDataQueue.MoveToBack(ele)
+			continue
+		}
+
 		{
 			remoteID = tempremoteID
 			sectorID = tempsectorID
@@ -526,28 +534,27 @@ func (sb *SectorBuilder) DealPushData() (error) {
 	}
 
 	//change RemoteID to pushtask
-	remoteID = remoteID + ".push"
-	call := workerCall{
+	pushremoteID := remoteID + ".push"
+	pushcall := workerCall{
 		task: WorkerTask{
 			Type:       WorkerPushData,
 			TaskID:     atomic.AddUint64(&sb.taskCtr, 1),
 			SectorID:   sectorID,
-			RemoteID:   remoteID,
+			RemoteID:   pushremoteID,
 		},
 		ret: make(chan SealRes),
 	}
 
-	task := sb.pushTasks[remoteID]
-	if task == nil {
-		log.Warn("SealPushData...", "remoteID: ", remoteID,  " sectorID: ",sectorID)
+	pushtask := sb.pushTasks[pushremoteID]
+	if pushtask == nil {
+		log.Warn("SealPushData...", "remoteID: ", pushremoteID,  " sectorID: ",sectorID)
 		return  xerrors.New("pushTasks not find")
 	}
-
 	sb.pushDataQueue.Remove(sector)
 
 	select { // prefer remote
-	case task <- call:
-		 sb.sealPushDataRemote(call)
+	case pushtask <- pushcall:
+		 sb.sealPushDataRemote(pushcall)
 		 return nil
 	default:
 	}
