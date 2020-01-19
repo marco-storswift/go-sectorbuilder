@@ -30,7 +30,7 @@ type Interface interface {
 
 	//For Remote seal
 	SealAddPiece(ctx context.Context, sectorID uint64, remoteid string) ([]byte, string, error)
-	DealPushData() error
+	DealPushData(string) error
 	AddPushData(string) error
 	SetRemoteStatus(string) error
 	CheckSector(uint64) error
