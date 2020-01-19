@@ -511,20 +511,19 @@ func (sb *SectorBuilder) DealPushData() (error) {
 			continue
 		}
 
-		pushid := remoteID + ".push"
-		task := sb.pushTasks[pushid]
+		pushremoteID := tempremoteID + ".push"
+		task := sb.pushTasks[pushremoteID]
 		if task == nil {
-			log.Warn("SealPushData...pushTasks is nil", "remoteID: ", pushid,  " sectorID: ",sectorID)
+			log.Warn("SealPushData...pushTasks is nil  ", "remoteID: ", pushremoteID,  " sectorID: ",tempsectorID)
 			sb.pushDataQueue.MoveToFront(ele)
 			continue
 		}
 
-		{
-			remoteID = tempremoteID
-			sectorID = tempsectorID
-			sector = ele
-			break
-		}
+		remoteID = pushremoteID
+		sectorID = tempsectorID
+		sector = ele
+		break
+
 	}
 
 	log.Info("SealPushData...", "pushDataQueue:", sb.pushDataQueue.Len(), " worknum:", num," remoteID: ", remoteID,  " sectorID: ",sectorID)
@@ -534,20 +533,19 @@ func (sb *SectorBuilder) DealPushData() (error) {
 	}
 
 	//change RemoteID to pushtask
-	pushremoteID := remoteID + ".push"
 	pushcall := workerCall{
 		task: WorkerTask{
 			Type:       WorkerPushData,
 			TaskID:     atomic.AddUint64(&sb.taskCtr, 1),
 			SectorID:   sectorID,
-			RemoteID:   pushremoteID,
+			RemoteID:   remoteID,
 		},
 		ret: make(chan SealRes),
 	}
 
-	pushtask := sb.pushTasks[pushremoteID]
+	pushtask := sb.pushTasks[remoteID]
 	if pushtask == nil {
-		log.Warn("SealPushData...", "remoteID: ", pushremoteID,  " sectorID: ",sectorID)
+		log.Warn("SealPushData...", "remoteID: ", remoteID,  " sectorID: ",sectorID)
 		return  xerrors.New("pushTasks not find")
 	}
 	sb.pushDataQueue.Remove(sector)
