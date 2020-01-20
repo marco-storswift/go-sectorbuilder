@@ -477,8 +477,6 @@ func (sb *SectorBuilder) DealPushData(addr string) (error) {
 	var sector *list.Element = nil
 
 	if addr == "" {
-		return nil
-
 		if pushSectorNum >= num {
 			log.Infof("SealPushData... in process  pushSectorNum:%d num:%d ", pushSectorNum, num)
 			return nil
