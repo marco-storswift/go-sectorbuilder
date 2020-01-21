@@ -449,7 +449,7 @@ func (sb *SectorBuilder) sealPushDataRemote(call workerCall) (string, error) {
 		go sb.DealPushData("")
 	}()
 
-	log.Info("sealAddPieceRemote...", "sectorID:", call.task.SectorID, "  RemoteID:", call.task.RemoteID)
+	log.Info("sealPushDataRemote...", "sectorID:", call.task.SectorID, "  RemoteID:", call.task.RemoteID)
 	sb.pushLk.Lock()
 	pushSectorNum = pushSectorNum + 1
 	sb.pushLk.Unlock()
@@ -495,7 +495,7 @@ func (sb *SectorBuilder) DealPushData(addr string) (error) {
 			}
 
 			value := ele.Value.(string)
-			log.Info("SealPushData...", "pushDataQueue: ", sb.pushDataQueue)
+			//log.Info("SealPushData...", "pushDataQueue: ", sb.pushDataQueue)
 			ids := strings.Split(value, "-")
 			tempremoteID := ids[0]
 			tempsectorID, err := strconv.ParseUint(ids[1], 10, 64)
