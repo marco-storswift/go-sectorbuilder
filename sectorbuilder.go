@@ -477,7 +477,6 @@ func (sb *SectorBuilder) DealPushData(addr string) (error) {
 	var sector *list.Element = nil
 
 	if addr == "" {
-		return nil
 		if pushSectorNum >= num {
 			log.Infof("SealPushData... in process  pushSectorNum:%d num:%d ", pushSectorNum, num)
 			return nil
@@ -903,11 +902,6 @@ func (sb *SectorBuilder) SealCommit(ctx context.Context, sectorID uint64, ticket
 	if err != nil {
 		sb.AddPushData(remoteid + "-" +  strconv.Itoa(int(sectorID)))
 	}
-
-	//TODO change to 40
-	//if sb.pushDataQueue.Len() > 2 {
-	//	return nil, xerrors.Errorf("PushDataQueueMax")
-	//}
 
 	select { // use whichever is available
 	case specialtask <- call:
