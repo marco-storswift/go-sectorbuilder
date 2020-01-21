@@ -901,6 +901,7 @@ func (sb *SectorBuilder) SealCommit(ctx context.Context, sectorID uint64, ticket
 	err = sb.CheckSector(sectorID)
 	if err != nil {
 		sb.AddPushData(remoteid + "-" +  strconv.Itoa(int(sectorID)))
+		go sb.DealPushData("")
 	}
 
 	select { // use whichever is available
