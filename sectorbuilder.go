@@ -974,11 +974,11 @@ func (sb *SectorBuilder) pubSectorToPriv(sectorInfo SortedPublicSectorInfo, faul
 			return SortedPrivateSectorInfo{}, xerrors.Errorf("getting sealed path for sector %d: %w", s.SectorID, err)
 		}
 
-		if s.SectorID > 2 {
-			cachePath = filepath.Join("/mnt/lotus/raido-1", "cache", sb.SectorName(s.SectorID))
-			os.Mkdir(cachePath, 0755)
-			sealedPath = filepath.Join("/mnt/lotus/raido-1", "sealed", sb.SectorName(s.SectorID))
-		}
+		//if s.SectorID > 2 {
+		//	cachePath = filepath.Join("/mnt/lotus/raido-1", "cache", sb.SectorName(s.SectorID))
+		//	os.Mkdir(cachePath, 0755)
+		//	sealedPath = filepath.Join("/mnt/lotus/raido-1", "sealed", sb.SectorName(s.SectorID))
+		//}
 
 		out = append(out, sectorbuilder.PrivateSectorInfo{
 			SectorID:         s.SectorID,
