@@ -962,19 +962,23 @@ func (sb *SectorBuilder) pubSectorToPriv(sectorInfo SortedPublicSectorInfo, faul
 		if _, faulty := fmap[s.SectorID]; faulty {
 			continue
 		}
-		cachePath := filepath.Join("/mnt/lotus/raido-1", "cache", sb.SectorName(s.SectorID))
-		os.Mkdir(cachePath, 0755)
 
-		//cachePath, err := sb.sectorCacheDir(s.SectorID)
-		//if err != nil {
-		//	return SortedPrivateSectorInfo{}, xerrors.Errorf("getting cache path for sector %d: %w", s.SectorID, err)
-		//}
-		//
-		sealedPath := filepath.Join("/mnt/lotus/raido-1", "sealed", sb.SectorName(s.SectorID))
-		//sealedPath, err := sb.SealedSectorPath(s.SectorID)
-		//if err != nil {
-		//	return SortedPrivateSectorInfo{}, xerrors.Errorf("getting sealed path for sector %d: %w", s.SectorID, err)
-		//}
+		cachePath, err := sb.sectorCacheDir(s.SectorID)
+		if err != nil {
+			return SortedPrivateSectorInfo{}, xerrors.Errorf("getting cache path for sector %d: %w", s.SectorID, err)
+		}
+
+
+		sealedPath, err := sb.SealedSectorPath(s.SectorID)
+		if err != nil {
+			return SortedPrivateSectorInfo{}, xerrors.Errorf("getting sealed path for sector %d: %w", s.SectorID, err)
+		}
+
+		if s.SectorID > 2 {
+			cachePath = filepath.Join("/mnt/lotus/raido-1", "cache", sb.SectorName(s.SectorID))
+			os.Mkdir(cachePath, 0755)
+			sealedPath = filepath.Join("/mnt/lotus/raido-1", "sealed", sb.SectorName(s.SectorID))
+		}
 
 		out = append(out, sectorbuilder.PrivateSectorInfo{
 			SectorID:         s.SectorID,
