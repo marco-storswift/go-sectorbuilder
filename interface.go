@@ -19,7 +19,7 @@ type Interface interface {
 	ComputeElectionPoSt(sectorInfo SortedPublicSectorInfo, challengeSeed []byte, winners []EPostCandidate) ([]byte, error)
 
 	SealPreCommit(context.Context, uint64, SealTicket, []PublicPieceInfo, string) (RawSealPreCommitOutput, error)
-	SealCommit(context.Context, uint64, SealTicket, SealSeed, []PublicPieceInfo, RawSealPreCommitOutput,string) ([]byte, error)
+	SealCommit(context.Context, uint64, SealTicket, SealSeed, []PublicPieceInfo, RawSealPreCommitOutput,string, string) ([]byte, error)
 
 	ReadPieceFromSealedSector(sectorID uint64, offset uint64, size uint64, ticket []byte, commD []byte) (io.ReadCloser, error)
 
@@ -31,7 +31,7 @@ type Interface interface {
 	//For Remote seal
 	SealAddPiece(ctx context.Context, sectorID uint64, remoteid string) ([]byte, string, error)
 	DealPushData(string) error
-	AddPushData(string) error
+	AddPushData(interface{}) error
 	SetRemoteStatus(string) error
 	CheckSector(uint64) error
 

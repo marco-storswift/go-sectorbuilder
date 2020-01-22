@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -124,6 +123,12 @@ type SealRes struct {
 
 	PieceCommp []byte
 	RemoteID string
+}
+
+type PushData struct {
+	RemoteID    string
+	SectorID    uint64
+	StoragePath string
 }
 
 type remote struct {
@@ -321,7 +326,7 @@ func (sb *SectorBuilder) SetRemoteStatus(remoteid string) (error) {
 	return nil
 }
 
-func (sb *SectorBuilder) AddPushData(id string) (error) {
+func (sb *SectorBuilder) AddPushData(id interface{}) (error) {
 	sb.pushDataQueue.PushFront(id)
 	return nil
 }
@@ -473,6 +478,7 @@ func (sb *SectorBuilder) DealPushData(addr string) (error) {
 		num = 3
 	}
 	var remoteID = ""
+	var storagePath = ""
 	var sectorID = uint64(0)
 	var sector *list.Element = nil
 
@@ -494,13 +500,12 @@ func (sb *SectorBuilder) DealPushData(addr string) (error) {
 				return nil
 			}
 
-			value := ele.Value.(string)
-			//log.Info("SealPushData...", "pushDataQueue: ", sb.pushDataQueue)
-			ids := strings.Split(value, "-")
-			tempremoteID := ids[0]
-			tempsectorID, err := strconv.ParseUint(ids[1], 10, 64)
+			data := ele.Value.(PushData)
+			tempremoteID := data.RemoteID
+			tempsectorID := data.SectorID
+			tempstoragePath := data.StoragePath
 
-			if tempremoteID == "" || tempsectorID == 0 {
+			if tempremoteID == "" || tempsectorID == 0 ||  tempstoragePath == "" {
 				log.Error("SealPushData...", "remoteID: ", tempremoteID, " sectorID: ", tempsectorID)
 				sb.pushDataQueue.Remove(ele)
 				continue
@@ -522,19 +527,19 @@ func (sb *SectorBuilder) DealPushData(addr string) (error) {
 			}
 
 			remoteID = pushremoteID
+			storagePath = tempstoragePath
 			sectorID = tempsectorID
+
 			sector = ele
 			break
 		}
 	} else {
-		ids := strings.Split(addr, "-")
-		remoteID = ids[0]
-		sectorID, err = strconv.ParseUint(ids[1], 10, 64)
+		log.Error("SealPushData...is nil ", addr)
+		return nil
 	}
 
-	log.Info("SealPushData...", "pushDataQueue:", sb.pushDataQueue.Len(), " worknum:", num," remoteID: ", remoteID,  " sectorID: ",sectorID)
+	log.Info("SealPushData...", "pushDataQueue:", sb.pushDataQueue.Len(), " worknum:", pushSectorNum," remoteID: ", remoteID,  " sectorID: ",sectorID)
 	if remoteID == ""  ||  sectorID == 0 {
-		log.Warn("SealPushData...", "remoteID: ", remoteID,  " sectorID: ",sectorID)
 		return nil
 	}
 
@@ -545,6 +550,7 @@ func (sb *SectorBuilder) DealPushData(addr string) (error) {
 			TaskID:     atomic.AddUint64(&sb.taskCtr, 1),
 			SectorID:   sectorID,
 			RemoteID:   remoteID,
+			StoragePath: storagePath,
 		},
 		ret: make(chan SealRes),
 	}
@@ -715,9 +721,6 @@ func (sb *SectorBuilder) sealPreCommitRemote(call workerCall) (RawSealPreCommitO
 		var err error
 		if ret.Err != "" {
 			err = xerrors.New(ret.Err)
-		} else {
-			sb.AddPushData(call.task.RemoteID + "-" + strconv.Itoa(int(call.task.SectorID)))
-			go sb.DealPushData("")
 		}
 		return ret.Rspco.rspco(), err
 	case <-sb.stopping:
@@ -871,7 +874,7 @@ func (sb *SectorBuilder) SealCommitLocal(sectorID uint64, ticket SealTicket, see
 	return proof, nil
 }
 
-func (sb *SectorBuilder) SealCommit(ctx context.Context, sectorID uint64, ticket SealTicket, seed SealSeed, pieces []PublicPieceInfo, rspco RawSealPreCommitOutput, remoteid string) (proof []byte, err error) {
+func (sb *SectorBuilder) SealCommit(ctx context.Context, sectorID uint64, ticket SealTicket, seed SealSeed, pieces []PublicPieceInfo, rspco RawSealPreCommitOutput, remoteid string, storagepath string) (proof []byte, err error) {
 	log.Info("SealCommit...", "RemoteID:", remoteid)
 
 	if sb.sealTasks[remoteid] == nil {
@@ -900,7 +903,7 @@ func (sb *SectorBuilder) SealCommit(ctx context.Context, sectorID uint64, ticket
 
 	err = sb.CheckSector(sectorID)
 	if err != nil {
-		sb.AddPushData(remoteid + "-" +  strconv.Itoa(int(sectorID)))
+		sb.AddPushData(PushData{RemoteID: remoteid, SectorID: sectorID, StoragePath:storagepath,})
 		go sb.DealPushData("")
 	}
 
@@ -959,16 +962,19 @@ func (sb *SectorBuilder) pubSectorToPriv(sectorInfo SortedPublicSectorInfo, faul
 		if _, faulty := fmap[s.SectorID]; faulty {
 			continue
 		}
+		cachePath := filepath.Join("/mnt/lotus/raido-1", "cache", sb.SectorName(s.SectorID))
+		os.Mkdir(cachePath, 0755)
 
-		cachePath, err := sb.sectorCacheDir(s.SectorID)
-		if err != nil {
-			return SortedPrivateSectorInfo{}, xerrors.Errorf("getting cache path for sector %d: %w", s.SectorID, err)
-		}
-
-		sealedPath, err := sb.SealedSectorPath(s.SectorID)
-		if err != nil {
-			return SortedPrivateSectorInfo{}, xerrors.Errorf("getting sealed path for sector %d: %w", s.SectorID, err)
-		}
+		//cachePath, err := sb.sectorCacheDir(s.SectorID)
+		//if err != nil {
+		//	return SortedPrivateSectorInfo{}, xerrors.Errorf("getting cache path for sector %d: %w", s.SectorID, err)
+		//}
+		//
+		sealedPath := filepath.Join("/mnt/lotus/raido-1", "sealed", sb.SectorName(s.SectorID))
+		//sealedPath, err := sb.SealedSectorPath(s.SectorID)
+		//if err != nil {
+		//	return SortedPrivateSectorInfo{}, xerrors.Errorf("getting sealed path for sector %d: %w", s.SectorID, err)
+		//}
 
 		out = append(out, sectorbuilder.PrivateSectorInfo{
 			SectorID:         s.SectorID,

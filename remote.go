@@ -35,6 +35,9 @@ type WorkerTask struct {
 
 	// remoteid
 	RemoteID string
+
+	//PushData
+	StoragePath string
 }
 
 type workerCall struct {
