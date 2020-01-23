@@ -58,7 +58,7 @@ func (sb *SectorBuilder) sectorCacheDir(sectorID uint64) (string, error) {
 	}
 
 	storagepath, err := sb.ds.Get(datastore.NewKey(strconv.Itoa(int(sectorID))))
-	log.Info("sectorCacheDir...", "  SectorID:", sectorID, "  StoragePath:", storagepath)
+	log.Info("sectorCacheDir...", "  SectorID:", sectorID, "  StoragePath:", string(storagepath[:]))
     if err != nil || storagepath == nil || len(storagepath) == 0 {
 	    dir := filepath.Join(sb.filesystem.pathFor(dataCache), sb.SectorName(sectorID))
 
