@@ -513,7 +513,7 @@ func (sb *SectorBuilder) DealPushData(addr string) (error) {
 			tempsectorID := data.SectorID
 			tempstoragePath := data.StoragePath
 
-			if tempremoteID == "" || tempsectorID == 0 ||  tempstoragePath == "" {
+			if tempremoteID == "" || tempsectorID == 0 {
 				log.Error("SealPushData...", "remoteID: ", tempremoteID, " sectorID: ", tempsectorID)
 				sb.pushDataQueue.Remove(ele)
 				continue
