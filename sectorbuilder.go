@@ -230,7 +230,7 @@ func NewStandalone(cfg *Config) (*SectorBuilder, error) {
 		remotes:       map[string]*remote{},
 		rateLimit:     make(chan struct{}, cfg.WorkerThreads),
 		stopping:      make(chan struct{}),
-		pushDataQueue: list.New(),
+		pushDataQueue: nil,
 	}
 
 	if err := sb.filesystem.init(); err != nil {
