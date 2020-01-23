@@ -245,6 +245,14 @@ func (sb *SectorBuilder) checkRateLimit() {
 		log.Warn("rate-limiting local sectorbuilder call")
 	}
 }
+func (sb *SectorBuilder) SaveStoragePath(key string, storagepath []byte) error {
+	if err := sb.ds.Put(datastore.NewKey(key), storagepath); err != nil {
+		log.Error("sealCommitRemote...", " SectorID:", key, "  StoragePath:", storagepath)
+		return err
+	}
+
+	return nil
+}
 
 func (sb *SectorBuilder) RateLimit() func() {
 	sb.checkRateLimit()
@@ -900,6 +908,11 @@ func (sb *SectorBuilder) SealCommit(ctx context.Context, sectorID uint64, ticket
 	}
 
 	atomic.AddInt32(&sb.commitWait, 1)
+
+	if err := sb.ds.Put(datastore.NewKey(strconv.Itoa(int(sectorID))), []byte(storagepath)); err != nil {
+		log.Error("sealCommitRemote...", "RemoteID:", remoteid, "  SectorID:", sectorID, "  StoragePath:", storagepath)
+		return nil, xerrors.Errorf("sb.ds.Put: %w", err)
+	}
 
 	err = sb.CheckSector(sectorID)
 	if err != nil {
