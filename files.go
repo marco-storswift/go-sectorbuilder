@@ -36,7 +36,6 @@ func (sb *SectorBuilder) SealedSectorPath(sectorID uint64) (string, error) {
 		return path, nil
 	}
 	storagepath, err := sb.ds.Get(datastore.NewKey(strconv.Itoa(int(sectorID))))
-	log.Info("sectorCacheDir...", "  SectorID:", sectorID, "  StoragePath:", storagepath)
 	if err != nil || storagepath == nil || len(storagepath) == 0 {
 		path := filepath.Join(sb.filesystem.pathFor(dataSealed), sb.SectorName(sectorID))
 		return path, nil
