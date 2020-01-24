@@ -519,18 +519,18 @@ func (sb *SectorBuilder) DealPushData(addr string) (error) {
 				continue
 			}
 
-			err = sb.CheckSector(tempsectorID)
-			if err == nil {
-				log.Info("SealPushData... Exist", " remoteID: ", tempremoteID, " sectorID: ", tempsectorID)
-				sb.pushDataQueue.Remove(ele)
-				continue
-			}
-
 			pushremoteID := tempremoteID + ".push"
 			task := sb.pushTasks[pushremoteID]
 			if task == nil {
 				log.Warn("SealPushData...pushTasks is nil  ", "remoteID: ", pushremoteID, " sectorID: ", tempsectorID)
 				sb.pushDataQueue.MoveToFront(ele)
+				continue
+			}
+
+			err = sb.CheckSector(tempsectorID)
+			if err == nil {
+				log.Info("SealPushData... Exist", " remoteID: ", tempremoteID, " sectorID: ", tempsectorID)
+				sb.pushDataQueue.Remove(ele)
 				continue
 			}
 
