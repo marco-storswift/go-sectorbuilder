@@ -523,7 +523,8 @@ func (sb *SectorBuilder) DealPushData(addr string) (error) {
 			task := sb.pushTasks[pushremoteID]
 			if task == nil {
 				log.Warn("SealPushData...pushTasks is nil  ", "remoteID: ", pushremoteID, " sectorID: ", tempsectorID)
-				sb.pushDataQueue.MoveToFront(ele)
+				//sb.pushDataQueue.MoveToFront(ele)
+				sb.pushDataQueue.Remove(ele)
 				continue
 			}
 
