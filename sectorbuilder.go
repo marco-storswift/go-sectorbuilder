@@ -547,7 +547,7 @@ func (sb *SectorBuilder) DealPushData(addr string) (error) {
 		return nil
 	}
 
-	log.Info("SealPushData...", "pushDataQueue:", sb.pushDataQueue.Len(), " worknum:", pushSectorNum," remoteID: ", remoteID,  " sectorID: ",sectorID)
+	log.Infof("SealPushData... %d/%d %s %d %s", sb.pushDataQueue.Len(), pushSectorNum, remoteID, sectorID, storagePath)
 	if remoteID == ""  ||  sectorID == 0 {
 		return nil
 	}
