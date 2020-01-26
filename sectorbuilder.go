@@ -910,11 +910,6 @@ func (sb *SectorBuilder) SealCommit(ctx context.Context, sectorID uint64, ticket
 
 	atomic.AddInt32(&sb.commitWait, 1)
 
-	if err := sb.ds.Put(datastore.NewKey(strconv.Itoa(int(sectorID))), []byte(storagepath)); err != nil {
-		log.Error("sealCommitRemote...", "RemoteID:", remoteid, "  SectorID:", sectorID, "  StoragePath:", storagepath)
-		return nil, xerrors.Errorf("sb.ds.Put: %w", err)
-	}
-
 	err = sb.CheckSector(sectorID)
 	if err != nil {
 		sb.AddPushData(PushData{RemoteID: remoteid, SectorID: sectorID, StoragePath:storagepath,})
