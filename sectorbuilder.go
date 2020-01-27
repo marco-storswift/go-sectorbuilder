@@ -322,6 +322,15 @@ func (sb *SectorBuilder) AcquireSectorId() (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
+
+	key := os.Getenv("SEAL_ID_INDEX")
+	num, err := strconv.ParseUint(key, 10, 64)
+	if err != nil || num == uint64(0) {
+		num = 0
+	}
+
+	id = id + num
+
 	return id, nil
 }
 
