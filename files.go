@@ -40,7 +40,7 @@ func (sb *SectorBuilder) SealedSectorPath(sectorID uint64) (string, error) {
 		path := filepath.Join(sb.filesystem.pathFor(dataSealed), sb.SectorName(sectorID))
 		return path, nil
 	} else {
-		path := filepath.Join(string(storagepath), string(dataSealed), sb.SectorName(sectorID))
+		path := filepath.Join(string(storagepath), ".lotusstorage", string(dataSealed), sb.SectorName(sectorID))
 		return path, nil
 	}
 }
@@ -68,7 +68,7 @@ func (sb *SectorBuilder) sectorCacheDir(sectorID uint64) (string, error) {
 
 	    return dir, err
     } else {
-	    dir := filepath.Join(string(storagepath), string(dataCache), sb.SectorName(sectorID))
+	    dir := filepath.Join(string(storagepath), ".lotusstorage", string(dataCache), sb.SectorName(sectorID))
 
 	    err = os.Mkdir(dir, 0755)
 	    if os.IsExist(err) {
