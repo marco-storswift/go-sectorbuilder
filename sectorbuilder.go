@@ -537,7 +537,7 @@ func (sb *SectorBuilder) DealPushData(addr string) (error) {
 				continue
 			}
 
-			err = sb.CheckSector(tempsectorID)
+			err = sb.CheckSector("", tempsectorID)
 			if err == nil {
 				log.Info("SealPushData... Exist", " remoteID: ", tempremoteID, " sectorID: ", tempsectorID)
 				sb.pushDataQueue.Remove(ele)
@@ -919,7 +919,7 @@ func (sb *SectorBuilder) SealCommit(ctx context.Context, sectorID uint64, ticket
 
 	atomic.AddInt32(&sb.commitWait, 1)
 
-	err = sb.CheckSector(sectorID)
+	err = sb.CheckSector("", sectorID)
 	if err != nil {
 		sb.AddPushData(PushData{RemoteID: remoteid, SectorID: sectorID, StoragePath:storagepath,})
 		go sb.DealPushData("")

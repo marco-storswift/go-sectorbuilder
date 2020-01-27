@@ -33,7 +33,7 @@ type Interface interface {
 	DealPushData(string) error
 	AddPushData(interface{}) error
 	SetRemoteStatus(string) error
-	CheckSector(uint64) error
+	CheckSector(string, uint64) error
 	SaveStoragePath(key string, value []byte) error
 
 }

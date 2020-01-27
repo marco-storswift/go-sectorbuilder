@@ -19,7 +19,7 @@ func (sb *SectorBuilder) Scrub(sectorSet sectorbuilder.SortedPublicSectorInfo) [
 	var faults []*Fault
 
 	for _, sector := range sectorSet.Values() {
-		err := sb.CheckSector(sector.SectorID)
+		err := sb.CheckSector("", sector.SectorID)
 		if err != nil {
 			faults = append(faults, &Fault{SectorID: sector.SectorID, Err: err})
 		}
@@ -28,8 +28,11 @@ func (sb *SectorBuilder) Scrub(sectorSet sectorbuilder.SortedPublicSectorInfo) [
 	return faults
 }
 
-func (sb *SectorBuilder) CheckSector(sectorID uint64) error {
+func (sb *SectorBuilder) CheckSector(storpath string, sectorID uint64) error {
 	cache, err := sb.sectorCacheDir(sectorID)
+	if storpath != "" {
+		cache = filepath.Join(storpath, "cache", sb.SectorName(sectorID))
+	}
 	if err != nil {
 		return xerrors.Errorf("getting sector cache dir: %w", err)
 	}
@@ -55,6 +58,9 @@ func (sb *SectorBuilder) CheckSector(sectorID uint64) error {
 	}
 
 	sealed, err := sb.SealedSectorPath(sectorID)
+	if storpath != "" {
+		sealed = filepath.Join(storpath, "sealed", sb.SectorName(sectorID))
+	}
 	if err != nil {
 		return xerrors.Errorf("getting sealed sector path: %w", err)
 	}
