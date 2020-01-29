@@ -334,10 +334,10 @@ func (sb *SectorBuilder) AcquireSectorId() (uint64, error) {
 	return id, nil
 }
 
-func (sb *SectorBuilder) SetRemoteStatus(remoteid string) (error) {
+func (sb *SectorBuilder) SetRemoteStatus(remoteid string ,status WorkerTaskType) (error) {
 	if sb.remotes[remoteid] != nil {
 		sb.remotes[remoteid].lk.Lock()
-		sb.remotes[remoteid].remoteStatus = WorkerIdle
+		sb.remotes[remoteid].remoteStatus = status
 		sb.remotes[remoteid].lk.Unlock()
 	}
 	return nil
@@ -629,25 +629,15 @@ func (sb *SectorBuilder) SealAddPiece(ctx context.Context, sectorID uint64, remo
 	call.task.RemoteID = remoteid
 	log.Info("SealAddPiece...", "RemoteID: ", remoteid)
 	atomic.AddInt32(&sb.addPieceWait, 1)
-	select { // prefer remote
+
+	select { // use whichever is available
 	case task <- call:
+		log.Info("sealAddPieceRemote...", "sectorID:", sectorID)
 		return sb.sealAddPieceRemote(call)
-	default:
-		select { // prefer remote
-		case task <- call:
-			log.Info("sealAddPieceRemote...", "sectorID: ", sectorID)
-			return sb.sealAddPieceRemote(call)
-		default:
-			//rl := sb.rateLimit
-			select { // use whichever is available
-			case task <- call:
-				log.Info("sealAddPieceRemote...", "sectorID:", sectorID)
-				return sb.sealAddPieceRemote(call)
-			case <-ctx.Done():
-				return nil, "", ctx.Err()
-			}
-		}
+	case <-ctx.Done():
+		return nil, "", ctx.Err()
 	}
+
 
 	return nil, "", xerrors.New("sectorbuilder stopped")
 }

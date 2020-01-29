@@ -32,7 +32,7 @@ type Interface interface {
 	SealAddPiece(ctx context.Context, sectorID uint64, remoteid string) ([]byte, string, error)
 	DealPushData(string) error
 	AddPushData(interface{}) error
-	SetRemoteStatus(string) error
+	SetRemoteStatus(string, WorkerTaskType) error
 	CheckSector(string, uint64) error
 	SaveStoragePath(key string, value []byte) error
 
