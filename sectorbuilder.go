@@ -468,7 +468,7 @@ func (sb *SectorBuilder) sealPushDataRemote(call workerCall) (string, error) {
 		sb.pushLk.Lock()
 		pushSectorNum = pushSectorNum - 1
 		sb.pushLk.Unlock()
-		go sb.DealPushData("")
+		go sb.DealPushData(nil)
 	}()
 
 	log.Info("sealPushDataRemote...", "sectorID:", call.task.SectorID, "  RemoteID:", call.task.RemoteID)
@@ -924,7 +924,7 @@ func (sb *SectorBuilder) SealCommit(ctx context.Context, sectorID uint64, ticket
 	err = sb.CheckSector("", sectorID)
 	if err != nil {
 		sb.AddPushData(PushData{RemoteID: remoteid, SectorID: sectorID, StoragePath:storagepath,})
-		go sb.DealPushData("")
+		go sb.DealPushData(nil)
 	}
 
 	select { // use whichever is available
