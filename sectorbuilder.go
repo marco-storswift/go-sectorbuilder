@@ -488,7 +488,7 @@ func (sb *SectorBuilder) sealPushDataRemote(call workerCall) (string, error) {
 	}
 }
 
-func (sb *SectorBuilder) DealPushData(addr string) (error) {
+func (sb *SectorBuilder) DealPushData(ids interface{}) (error) {
 	key := os.Getenv("SEAL_PUSH_DATA_NUM")
 	num, err := strconv.ParseUint(key, 10, 64)
 	if err != nil || num == uint64(0) {
@@ -499,7 +499,7 @@ func (sb *SectorBuilder) DealPushData(addr string) (error) {
 	var sectorID = uint64(0)
 	var sector *list.Element = nil
 
-	if addr == "" {
+	if ids == nil {
 		if pushSectorNum >= num {
 			log.Infof("SealPushData... in process  pushSectorNum:%d num:%d ", pushSectorNum, num)
 			return nil
@@ -552,8 +552,20 @@ func (sb *SectorBuilder) DealPushData(addr string) (error) {
 			break
 		}
 	} else {
-		log.Error("SealPushData...is nil ", addr)
-		return nil
+		tmpid := ids.(PushData)
+		log.Info("SealPushData...", tmpid)
+		for item := sb.pushDataQueue.Front();nil != item ;item = item.Next() {
+			data := item.Value.(PushData)
+			tempremoteID := data.RemoteID
+			tempsectorID := data.SectorID
+			tempstoragePath := data.StoragePath
+			if  tempremoteID == tmpid.RemoteID &&  tempsectorID == tmpid.SectorID && tempstoragePath == tmpid.StoragePath {
+				log.Info("SealPushData...", data)
+				return nil
+			}
+		}
+
+		return xerrors.New("pushDataQueue Tasks not find")
 	}
 
 	log.Infof("SealPushData... %d/%d %s %d %s", sb.pushDataQueue.Len(), pushSectorNum, remoteID, sectorID, storagePath)
