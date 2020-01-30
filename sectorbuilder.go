@@ -252,6 +252,7 @@ func (sb *SectorBuilder) checkRateLimit() {
 }
 func (sb *SectorBuilder) SaveStoragePath(key uint64, storagepath string) error {
 	if key !=  0 {
+		log.Infof("SaveStoragePath %d=%s", key, storagepath)
 		sb.storageMap[key] = storagepath
 		return nil
 	}

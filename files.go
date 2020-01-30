@@ -60,6 +60,7 @@ func (sb *SectorBuilder) sectorCacheDir(sectorID uint64) (string, error) {
 	storagepath:= sb.storageMap[sectorID]
     if storagepath == "" || len(storagepath) == 0 {
 	    dir := filepath.Join(sb.filesystem.pathFor(dataCache), sb.SectorName(sectorID))
+log.Infof("sectorCacheDir %d=%s", sectorID, dir)
 	    err := os.Mkdir(dir, 0755)
 	    if os.IsExist(err) {
 		    err = nil
@@ -68,6 +69,7 @@ func (sb *SectorBuilder) sectorCacheDir(sectorID uint64) (string, error) {
 	    return dir, err
     } else {
 	    dir := filepath.Join(string(storagepath), ".lotusstorage", string(dataCache), sb.SectorName(sectorID))
+log.Infof("sectorCacheDir %d=%s", sectorID, dir)
 	    err := os.Mkdir(dir, 0755)
 	    if os.IsExist(err) {
 		    err = nil
