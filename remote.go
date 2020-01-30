@@ -90,7 +90,7 @@ func (sb *SectorBuilder) returnTask(task workerCall) {
 }
 
 func (sb *SectorBuilder) remoteWorker(ctx context.Context, r *remote, cfg WorkerCfg) {
-	defer log.Warn("Remote worker disconnected")
+	defer log.Warn("Remote worker disconnected", r.RemoteID)
 
 	defer func() {
 		sb.remoteLk.Lock()
