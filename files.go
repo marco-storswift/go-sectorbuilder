@@ -33,13 +33,12 @@ func (sb *SectorBuilder) SealedSectorPath(sectorID uint64) (string, error) {
 		path := filepath.Join(sb.filesystem.pathFor(dataSealed), sb.SectorName(sectorID))
 		return path, nil
 	}
-	//storagepath, err := sb.ds.Get(datastore.NewKey(strconv.Itoa(int(sectorID))))
-	storagepath:= sb.storageMap[sectorID]
-	if storagepath == "" || len(storagepath) == 0 {
+	storagepath, _:= sb.storageMap.Load(sectorID)
+	if storagepath == "" || len(storagepath.(string)) == 0 {
 		path := filepath.Join(sb.filesystem.pathFor(dataSealed), sb.SectorName(sectorID))
 		return path, nil
 	} else {
-		path := filepath.Join(string(storagepath), ".lotusstorage", string(dataSealed), sb.SectorName(sectorID))
+		path := filepath.Join(string(storagepath.(string)), ".lotusstorage", string(dataSealed), sb.SectorName(sectorID))
 		return path, nil
 	}
 }
@@ -56,9 +55,8 @@ func (sb *SectorBuilder) sectorCacheDir(sectorID uint64) (string, error) {
 		return dir, err
 	}
 
-	//storagepath, err := sb.ds.Get(datastore.NewKey(strconv.Itoa(int(sectorID))))
-	storagepath:= sb.storageMap[sectorID]
-    if storagepath == "" || len(storagepath) == 0 {
+	storagepath, _:= sb.storageMap.Load(sectorID)
+    if storagepath == "" || len(storagepath.(string)) == 0 {
 	    dir := filepath.Join(sb.filesystem.pathFor(dataCache), sb.SectorName(sectorID))
 //log.Infof("sectorCacheDir %d=%s", sectorID, dir)
 	    err := os.Mkdir(dir, 0755)
@@ -68,7 +66,7 @@ func (sb *SectorBuilder) sectorCacheDir(sectorID uint64) (string, error) {
 
 	    return dir, err
     } else {
-	    dir := filepath.Join(string(storagepath), ".lotusstorage", string(dataCache), sb.SectorName(sectorID))
+	    dir := filepath.Join(string(storagepath.(string)), ".lotusstorage", string(dataCache), sb.SectorName(sectorID))
 //log.Infof("sectorCacheDir %d=%s", sectorID, dir)
 	    err := os.Mkdir(dir, 0755)
 	    if os.IsExist(err) {

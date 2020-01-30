@@ -94,7 +94,7 @@ type SectorBuilder struct {
 	pushLk        sync.Mutex
 	pushDataQueue *list.List
 
-	storageMap    map[uint64]string
+	storageMap    sync.Map
 }
 
 type JsonRSPCO struct {
@@ -209,7 +209,6 @@ func New(cfg *Config, ds datastore.Batching) (*SectorBuilder, error) {
 
 		pushDataQueue: list.New(),
 
-		storageMap:    make(map[uint64]string),
 	}
 
 	if err := sb.filesystem.init(); err != nil {
@@ -253,7 +252,7 @@ func (sb *SectorBuilder) checkRateLimit() {
 func (sb *SectorBuilder) SaveStoragePath(key uint64, storagepath string) error {
 	if key !=  0 {
 		log.Infof("SaveStoragePath %d=%s", key, storagepath)
-		sb.storageMap[key] = storagepath
+		sb.storageMap.Store(key, storagepath)
 		return nil
 	}
 	//if err := sb.ds.Put(datastore.NewKey(key), storagepath); err != nil {
