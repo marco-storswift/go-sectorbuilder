@@ -234,7 +234,6 @@ func NewStandalone(cfg *Config) (*SectorBuilder, error) {
 		rateLimit:     make(chan struct{}, cfg.WorkerThreads),
 		stopping:      make(chan struct{}),
 		pushDataQueue: nil,
-		storageMap:    nil,
 	}
 
 	if err := sb.filesystem.init(); err != nil {
