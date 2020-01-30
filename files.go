@@ -2,12 +2,10 @@ package sectorbuilder
 
 import (
 	"fmt"
-	"github.com/ipfs/go-datastore"
 	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -35,8 +33,9 @@ func (sb *SectorBuilder) SealedSectorPath(sectorID uint64) (string, error) {
 		path := filepath.Join(sb.filesystem.pathFor(dataSealed), sb.SectorName(sectorID))
 		return path, nil
 	}
-	storagepath, err := sb.ds.Get(datastore.NewKey(strconv.Itoa(int(sectorID))))
-	if err != nil || storagepath == nil || len(storagepath) == 0 {
+	//storagepath, err := sb.ds.Get(datastore.NewKey(strconv.Itoa(int(sectorID))))
+	storagepath:= sb.storageMap[sectorID]
+	if storagepath == "" || len(storagepath) == 0 {
 		path := filepath.Join(sb.filesystem.pathFor(dataSealed), sb.SectorName(sectorID))
 		return path, nil
 	} else {
@@ -57,11 +56,11 @@ func (sb *SectorBuilder) sectorCacheDir(sectorID uint64) (string, error) {
 		return dir, err
 	}
 
-	storagepath, err := sb.ds.Get(datastore.NewKey(strconv.Itoa(int(sectorID))))
-    if err != nil || storagepath == nil || len(storagepath) == 0 {
+	//storagepath, err := sb.ds.Get(datastore.NewKey(strconv.Itoa(int(sectorID))))
+	storagepath:= sb.storageMap[sectorID]
+    if storagepath == "" || len(storagepath) == 0 {
 	    dir := filepath.Join(sb.filesystem.pathFor(dataCache), sb.SectorName(sectorID))
-
-	    err = os.Mkdir(dir, 0755)
+	    err := os.Mkdir(dir, 0755)
 	    if os.IsExist(err) {
 		    err = nil
 	    }
@@ -69,8 +68,7 @@ func (sb *SectorBuilder) sectorCacheDir(sectorID uint64) (string, error) {
 	    return dir, err
     } else {
 	    dir := filepath.Join(string(storagepath), ".lotusstorage", string(dataCache), sb.SectorName(sectorID))
-
-	    err = os.Mkdir(dir, 0755)
+	    err := os.Mkdir(dir, 0755)
 	    if os.IsExist(err) {
 		    err = nil
 	    }

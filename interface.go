@@ -34,7 +34,7 @@ type Interface interface {
 	AddPushData(interface{}) error
 	SetRemoteStatus(string, WorkerTaskType) error
 	CheckSector(string, uint64) error
-	SaveStoragePath(key string, value []byte) error
+	SaveStoragePath(uint64, string) error
 
 }
 

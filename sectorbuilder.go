@@ -93,6 +93,8 @@ type SectorBuilder struct {
 
 	pushLk        sync.Mutex
 	pushDataQueue *list.List
+
+	storageMap    map[uint64]string
 }
 
 type JsonRSPCO struct {
@@ -206,6 +208,8 @@ func New(cfg *Config, ds datastore.Batching) (*SectorBuilder, error) {
 		stopping: make(chan struct{}),
 
 		pushDataQueue: list.New(),
+
+		storageMap:    make(map[uint64]string),
 	}
 
 	if err := sb.filesystem.init(); err != nil {
@@ -231,6 +235,7 @@ func NewStandalone(cfg *Config) (*SectorBuilder, error) {
 		rateLimit:     make(chan struct{}, cfg.WorkerThreads),
 		stopping:      make(chan struct{}),
 		pushDataQueue: nil,
+		storageMap:    nil,
 	}
 
 	if err := sb.filesystem.init(); err != nil {
@@ -245,12 +250,16 @@ func (sb *SectorBuilder) checkRateLimit() {
 		log.Warn("rate-limiting local sectorbuilder call")
 	}
 }
-func (sb *SectorBuilder) SaveStoragePath(key string, storagepath []byte) error {
-	if err := sb.ds.Put(datastore.NewKey(key), storagepath); err != nil {
-		log.Error("sealCommitRemote...", " SectorID:", key, "  StoragePath:", storagepath)
-		return err
+func (sb *SectorBuilder) SaveStoragePath(key uint64, storagepath string) error {
+	if key !=  0 {
+		sb.storageMap[key] = storagepath
+		return nil
 	}
-
+	//if err := sb.ds.Put(datastore.NewKey(key), storagepath); err != nil {
+	//	log.Error("sealCommitRemote...", " SectorID:", key, "  StoragePath:", storagepath)
+	//	return err
+	//}
+	log.Warn("SaveStoragePath  key is nil")
 	return nil
 }
 
