@@ -24,6 +24,7 @@ type Interface interface {
 	ReadPieceFromSealedSector(sectorID uint64, offset uint64, size uint64, ticket []byte, commD []byte) (io.ReadCloser, error)
 
 	GetPath(string, string) (string, error)
+	CanCommit(sectorID uint64) (bool, error)
 	WorkerStats() WorkerStats
 	AddWorker(context.Context, WorkerCfg) (<-chan WorkerTask, error)
 	TaskDone(context.Context, uint64, string, SealRes) error
@@ -43,6 +44,3 @@ type Verifier interface {
 	VerifyFallbackPost(ctx context.Context, sectorSize uint64, sectorInfo SortedPublicSectorInfo, challengeSeed []byte, proof []byte, candidates []EPostCandidate, proverID address.Address, faults uint64) (bool, error)
 	VerifySeal(sectorSize uint64, commR, commD []byte, proverID address.Address, ticket []byte, seed []byte, sectorID uint64, proof []byte) (bool, error)
 }
-
-var _ Verifier = ProofVerifier
-var _ Interface = &SectorBuilder{}
