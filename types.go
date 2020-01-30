@@ -1,6 +1,7 @@
 package sectorbuilder
 
 import (
+	"container/list"
 	"sync"
 
 	ffi "github.com/filecoin-project/filecoin-ffi"
@@ -28,8 +29,9 @@ type EPostCandidate = ffi.Candidate
 const CommLen = ffi.CommitmentBytesLen
 
 type WorkerCfg struct {
-	NoPreCommit bool
-	NoCommit    bool
+	NoSeal      bool
+	NoPush      bool
+	RemoteID    string
 
 	// TODO: 'cost' info, probably in terms of sealing + transfer speed
 }
@@ -49,13 +51,13 @@ type SectorBuilder struct {
 	noPreCommit bool
 	rateLimit   chan struct{}
 
-	precommitTasks chan workerCall
-	commitTasks    chan workerCall
+
+	sealTasks map[string]chan workerCall
+	pushTasks map[string]chan workerCall
 
 	taskCtr       uint64
 	remoteLk      sync.Mutex
-	remoteCtr     int
-	remotes       map[int]*remote
+	remotes       map[string]*remote
 	remoteResults map[uint64]chan<- SealRes
 
 	addPieceWait  int32
@@ -67,13 +69,21 @@ type SectorBuilder struct {
 	filesystem *fs        // TODO: multi-fs support
 
 	stopping chan struct{}
+
+	pushLk        sync.Mutex
+	pushDataQueue *list.List
+
+	storageMap    sync.Map
 }
 
 type remote struct {
 	lk sync.Mutex
 
 	sealTasks chan<- WorkerTask
-	busy      uint64 // only for metrics
+	remoteStatus WorkerTaskType //for control step
+
+	//RemoteID
+	RemoteID  string
 }
 
 type JsonRSPCO struct {
@@ -87,4 +97,16 @@ type SealRes struct {
 
 	Proof []byte
 	Rspco JsonRSPCO
+
+	PieceCommp []byte
+	RemoteID string
 }
+
+type PushData struct {
+	RemoteID    string
+	SectorID    uint64
+	StoragePath string
+}
+
+
+
