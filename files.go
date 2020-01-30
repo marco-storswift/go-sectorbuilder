@@ -34,7 +34,7 @@ func (sb *SectorBuilder) SealedSectorPath(sectorID uint64) (string, error) {
 		return path, nil
 	}
 	storagepath, _:= sb.storageMap.Load(sectorID)
-	if storagepath == "" || len(storagepath.(string)) == 0 {
+	if storagepath == nil || storagepath == "" || len(storagepath.(string)) == 0 {
 		path := filepath.Join(sb.filesystem.pathFor(dataSealed), sb.SectorName(sectorID))
 		return path, nil
 	} else {
@@ -56,7 +56,7 @@ func (sb *SectorBuilder) sectorCacheDir(sectorID uint64) (string, error) {
 	}
 
 	storagepath, _:= sb.storageMap.Load(sectorID)
-    if storagepath == "" || len(storagepath.(string)) == 0 {
+    if storagepath == nil || storagepath == "" || len(storagepath.(string)) == 0 {
 	    dir := filepath.Join(sb.filesystem.pathFor(dataCache), sb.SectorName(sectorID))
 //log.Infof("sectorCacheDir %d=%s", sectorID, dir)
 	    err := os.Mkdir(dir, 0755)
