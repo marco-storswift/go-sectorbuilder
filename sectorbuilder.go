@@ -4,7 +4,13 @@ import (
 	"container/list"
 	"context"
 	"fmt"
+	sectorbuilder "github.com/filecoin-project/filecoin-ffi"
+	"github.com/filecoin-project/go-address"
+	datastore "github.com/ipfs/go-datastore"
+	logging "github.com/ipfs/go-log"
+	dcopy "github.com/otiai10/copy"
 	"golang.org/x/exp/rand"
+	"golang.org/x/xerrors"
 	"io"
 	"io/ioutil"
 	"os"
@@ -12,13 +18,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
-
-	sectorbuilder "github.com/filecoin-project/filecoin-ffi"
-	"github.com/filecoin-project/go-address"
-	datastore "github.com/ipfs/go-datastore"
-	logging "github.com/ipfs/go-log"
-	dcopy "github.com/otiai10/copy"
-	"golang.org/x/xerrors"
+	"time"
 )
 
 const PoStReservedWorkers = 1
@@ -969,10 +969,12 @@ func (sb *SectorBuilder) ComputeElectionPoSt(sectorInfo SortedPublicSectorInfo, 
 }
 
 func (sb *SectorBuilder) GenerateEPostCandidates(sectorInfo SortedPublicSectorInfo, challengeSeed [CommLen]byte, faults []uint64) ([]EPostCandidate, error) {
+	start := time.Now()
 	privsectors, err := sb.pubSectorToPriv(sectorInfo, faults)
 	if err != nil {
 		return nil, err
 	}
+	log.Infof("Generate candidates took pubSectorToPriv  %s", time.Since(start))
 
 	challengeCount := ElectionPostChallengeCount(uint64(len(sectorInfo.Values())), uint64(len(faults)))
 
@@ -1002,12 +1004,6 @@ func (sb *SectorBuilder) pubSectorToPriv(sectorInfo SortedPublicSectorInfo, faul
 		if err != nil {
 			return SortedPrivateSectorInfo{}, xerrors.Errorf("getting sealed path for sector %d: %w", s.SectorID, err)
 		}
-
-		//if s.SectorID > 2 {
-		//	cachePath = filepath.Join("/mnt/lotus/raido-1", "cache", sb.SectorName(s.SectorID))
-		//	os.Mkdir(cachePath, 0755)
-		//	sealedPath = filepath.Join("/mnt/lotus/raido-1", "sealed", sb.SectorName(s.SectorID))
-		//}
 
 		out = append(out, sectorbuilder.PrivateSectorInfo{
 			SectorID:         s.SectorID,
