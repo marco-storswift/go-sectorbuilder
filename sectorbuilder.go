@@ -952,6 +952,7 @@ func (sb *SectorBuilder) SealCommit(ctx context.Context, sectorID uint64, ticket
 }
 
 func (sb *SectorBuilder) ComputeElectionPoSt(sectorInfo SortedPublicSectorInfo, challengeSeed []byte, winners []EPostCandidate) ([]byte, error) {
+	start := time.Now()
 	if len(challengeSeed) != CommLen {
 		return nil, xerrors.Errorf("given challenge seed was the wrong length: %d != %d", len(challengeSeed), CommLen)
 	}
@@ -963,6 +964,7 @@ func (sb *SectorBuilder) ComputeElectionPoSt(sectorInfo SortedPublicSectorInfo, 
 		return nil, err
 	}
 
+	log.Infof("ComputeElectionPoSt took pubSectorToPriv  %s", time.Since(start))
 	proverID := addressToProverID(sb.Miner)
 
 	return sectorbuilder.GeneratePoSt(sb.ssize, proverID, privsects, cseed, winners)
@@ -974,7 +976,7 @@ func (sb *SectorBuilder) GenerateEPostCandidates(sectorInfo SortedPublicSectorIn
 	if err != nil {
 		return nil, err
 	}
-	log.Infof("Generate candidates took pubSectorToPriv  %s", time.Since(start))
+	log.Infof("GenerateEPostCandidates took pubSectorToPriv  %s", time.Since(start))
 
 	challengeCount := ElectionPostChallengeCount(uint64(len(sectorInfo.Values())), uint64(len(faults)))
 
