@@ -9,12 +9,13 @@ import (
 	datastore "github.com/ipfs/go-datastore"
 	logging "github.com/ipfs/go-log"
 	dcopy "github.com/otiai10/copy"
-	"golang.org/x/exp/rand"
 	"golang.org/x/xerrors"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -416,6 +417,17 @@ func (sb *SectorBuilder) sealAddPieceRemote(call workerCall) ([]byte,  string, e
 	}
 }
 
+func (sb *SectorBuilder) pledgeReader(size uint64, parts uint64) io.Reader {
+	piece := UserBytesForSectorSize((size/127 + size) / parts)
+
+	readers := make([]io.Reader, parts)
+	for i := range readers {
+		readers[i] = io.LimitReader(rand.New(rand.NewSource(42+int64(i))), int64(piece))
+	}
+
+	return io.MultiReader(readers...)
+}
+
 //SealAddPieceLocal
 func (sb *SectorBuilder) SealAddPieceLocal(sectorID uint64, size uint64, hostfix string) (pcommp[]byte, err error) {
 	log.Info("SealAddPieceLocal...", "sectorID:", sectorID , " RemoteID:", hostfix)
@@ -442,7 +454,8 @@ func (sb *SectorBuilder) SealAddPieceLocal(sectorID uint64, size uint64, hostfix
 		pieceExist = true
 	}
 	if  len(pieceCommp) != 32 || !pieceExist || keyerr != nil  {
-		ppi, err := sb.AddPiece(size, sectorID, io.LimitReader(rand.New(rand.NewSource(42)), int64(size)), []uint64{}, piecePath)
+		//ppi, err := sb.AddPiece(size, sectorID, io.LimitReader(rand.New(rand.NewSource(42)), int64(size)), []uint64{}, piecePath)
+		ppi, err := sb.AddPiece(size, sectorID, sb.pledgeReader(size, uint64(runtime.NumCPU())),  []uint64{}, piecePath)
 		if err != nil {
 			log.Info("SealAddPieceLocal...", "sectorID:", sectorID , " RemoteID:", hostfix, " err", err)
 			return nil, xerrors.Errorf("SealAddPieceLocal: %w", err)
