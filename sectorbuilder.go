@@ -55,6 +55,14 @@ type Config struct {
 	_   struct{} // guard against nameless init
 }
 
+func SimplePathTemp(dir string) []fs.PathConfig {
+	return []fs.PathConfig{{
+		Path:   dir,
+		Cache:  true,
+		Weight: 1,
+	}}
+}
+
 func New(cfg *Config, ds datastore.Batching) (*SectorBuilder, error) {
 	if cfg.WorkerThreads < PoStReservedWorkers {
 		return nil, xerrors.Errorf("minimum worker threads is %d, specified %d", PoStReservedWorkers, cfg.WorkerThreads)
@@ -89,7 +97,7 @@ func New(cfg *Config, ds datastore.Batching) (*SectorBuilder, error) {
 		ssize:  cfg.SectorSize,
 		lastID: lastUsedID,
 
-		filesystem: fs.OpenFs(SimplePath(cfg.Dir)),
+		filesystem: fs.OpenFs(SimplePathTemp(cfg.Dir)),
 
 		Miner: cfg.Miner,
 
@@ -124,7 +132,7 @@ func NewStandalone(cfg *Config) (*SectorBuilder, error) {
 		ssize: cfg.SectorSize,
 
 		Miner:      cfg.Miner,
-		filesystem: fs.OpenFs(SimplePath(cfg.Dir)),
+		filesystem: fs.OpenFs(SimplePathTemp(cfg.Dir)),
 
 		taskCtr:       1,
 		noCommit :     false,
