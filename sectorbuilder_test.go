@@ -15,7 +15,6 @@ import (
 	ffi "github.com/filecoin-project/filecoin-ffi"
 	"github.com/filecoin-project/go-address"
 	paramfetch "github.com/filecoin-project/go-paramfetch"
-	"github.com/filecoin-project/go-sectorbuilder/fs"
 	"github.com/ipfs/go-datastore"
 	logging "github.com/ipfs/go-log"
 
@@ -158,21 +157,21 @@ func TestSealAndVerify(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	//
+	//paths := []fs.PathConfig{
+	//	{
+	//		Path:   cdir,
+	//		Cache:  true,
+	//		Weight: 1,
+	//	},
+	//	{
+	//		Path:   sdir,
+	//		Cache:  false,
+	//		Weight: 1,
+	//	},
+	//}
 
-	paths := []fs.PathConfig{
-		{
-			Path:   cdir,
-			Cache:  true,
-			Weight: 1,
-		},
-		{
-			Path:   sdir,
-			Cache:  false,
-			Weight: 1,
-		},
-	}
-
-	sb, err := sectorbuilder.TempSectorbuilderDir(paths, sectorSize, ds)
+	sb, err := sectorbuilder.TempSectorbuilderDir(cdir, sectorSize, ds)
 	if err != nil {
 		t.Fatalf("%+v", err)
 	}
@@ -212,7 +211,7 @@ func TestSealAndVerify(t *testing.T) {
 	epost := time.Now()
 
 	// Restart sectorbuilder, re-run post
-	sb, err = sectorbuilder.TempSectorbuilderDir(paths, sectorSize, ds)
+	sb, err = sectorbuilder.TempSectorbuilderDir(cdir, sectorSize, ds)
 	if err != nil {
 		t.Fatalf("%+v", err)
 	}

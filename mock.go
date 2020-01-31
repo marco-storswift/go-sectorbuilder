@@ -6,7 +6,7 @@ import (
 	"github.com/ipfs/go-datastore"
 )
 
-func TempSectorbuilderDir(paths []fs.PathConfig, sectorSize uint64, ds datastore.Batching) (*SectorBuilder, error) {
+func TempSectorbuilderDir(paths string, sectorSize uint64, ds datastore.Batching) (*SectorBuilder, error) {
 	addr, err := address.NewFromString("t0123")
 	if err != nil {
 		return nil, err
@@ -15,7 +15,7 @@ func TempSectorbuilderDir(paths []fs.PathConfig, sectorSize uint64, ds datastore
 	sb, err := New(&Config{
 		SectorSize: sectorSize,
 
-		Paths: paths,
+		Dir: paths,
 
 		WorkerThreads: 2,
 		Miner:         addr,
@@ -27,10 +27,14 @@ func TempSectorbuilderDir(paths []fs.PathConfig, sectorSize uint64, ds datastore
 	return sb, nil
 }
 
-func SimplePath(dir string) []fs.PathConfig {
-	return []fs.PathConfig{{
-		Path:   dir,
-		Cache:  true,
-		Weight: 1,
-	}}
+//func SimplePath(dir string) []fs.PathConfig {
+//	return []fs.PathConfig{{
+//		Path:   dir,
+//		Cache:  true,
+//		Weight: 1,
+//	}}
+//}
+
+func SimplePath(dir string) string {
+     return dir
 }
