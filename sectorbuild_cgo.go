@@ -13,34 +13,61 @@ import (
 
 	ffi "github.com/filecoin-project/filecoin-ffi"
 	"golang.org/x/xerrors"
-)
 
-var pushSectorNum = uint64(0)
+	fs "github.com/filecoin-project/go-sectorbuilder/fs"
+)
 
 var _ Interface = &SectorBuilder{}
 
-func (sb *SectorBuilder) AddPiece(pieceSize uint64, sectorId uint64, file io.Reader, existingPieceSizes []uint64, stagingPath string ) (PublicPieceInfo, error) {
-	fs := sb.filesystem
-
-	if err := fs.reserve(dataStaging, sb.ssize); err != nil {
-		return PublicPieceInfo{}, err
-	}
-	defer fs.free(dataStaging, sb.ssize)
+func (sb *SectorBuilder) AddPiece(ctx context.Context, pieceSize uint64, sectorId uint64, file io.Reader, existingPieceSizes []uint64, stagingPath string) (PublicPieceInfo, error) {
+	//atomic.AddInt32(&sb.addPieceWait, 1)
+	//ret := sb.RateLimit()
+	//atomic.AddInt32(&sb.addPieceWait, -1)
+	//defer ret()
 
 	f, werr, err := toReadableFile(file, int64(pieceSize))
 	if err != nil {
 		return PublicPieceInfo{}, err
 	}
 
+	var stagedFile *os.File
+	var stagedPath fs.SectorPath
+	if len(existingPieceSizes) == 0 {
+		if stagingPath != "" {
+			stagedPath = fs.SectorPath(stagingPath)
+		} else  {
+			stagedPath, err = sb.AllocSectorPath(fs.DataStaging, sectorId, true)
+			if err != nil {
+				return PublicPieceInfo{}, xerrors.Errorf("allocating sector: %w", err)
+			}
+		}
 
-	stagedFile, err := sb.stagedSectorFile(sectorId)
-	if stagingPath != "" {
-		stagedFile, err = os.OpenFile(stagingPath, os.O_RDWR|os.O_CREATE, 0777)
+		stagedFile, err = os.Create(string(stagedPath))
+		if err != nil {
+			return PublicPieceInfo{}, xerrors.Errorf("opening sector file: %w", err)
+		}
+
+		defer sb.filesystem.Release(stagedPath, sb.ssize)
+	} else {
+		if stagingPath != "" {
+			stagedPath = fs.SectorPath(stagingPath)
+		} else {
+			stagedPath, err = sb.SectorPath(fs.DataStaging, sectorId)
+			if err != nil {
+				return PublicPieceInfo{}, xerrors.Errorf("getting sector path: %w", err)
+			}
+		}
+
+		stagedFile, err = os.OpenFile(string(stagedPath), os.O_RDWR, 0644)
+		if err != nil {
+			return PublicPieceInfo{}, xerrors.Errorf("opening sector file: %w", err)
+		}
 	}
 
-	if err != nil {
+	if err := sb.filesystem.Lock(ctx, stagedPath); err != nil {
 		return PublicPieceInfo{}, err
 	}
+	defer sb.filesystem.Unlock(stagedPath)
 
 	_, _, commP, err := ffi.WriteWithAlignment(f, pieceSize, stagedFile, existingPieceSizes)
 	if err != nil {
@@ -61,13 +88,22 @@ func (sb *SectorBuilder) AddPiece(pieceSize uint64, sectorId uint64, file io.Rea
 	}, werr()
 }
 
-func (sb *SectorBuilder) ReadPieceFromSealedSector(sectorID uint64, offset uint64, size uint64, ticket []byte, commD []byte) (io.ReadCloser, error) {
-	fs := sb.filesystem
+func (sb *SectorBuilder) ReadPieceFromSealedSector(ctx context.Context, sectorID uint64, offset uint64, size uint64, ticket []byte, commD []byte) (io.ReadCloser, error) {
+	sfs := sb.filesystem
 
-	if err := fs.reserve(dataUnsealed, sb.ssize); err != nil { // TODO: this needs to get smarter when we start supporting partial unseals
+	// TODO: this needs to get smarter when we start supporting partial unseals
+	unsealedPath, err := sfs.AllocSector(fs.DataUnsealed, sb.Miner, sb.ssize, true, sectorID)
+	if err != nil {
+		if !xerrors.Is(err, fs.ErrExists) {
+			return nil, xerrors.Errorf("AllocSector: %w", err)
+		}
+	}
+	defer sfs.Release(unsealedPath, sb.ssize)
+
+	if err := sfs.Lock(ctx, unsealedPath); err != nil {
 		return nil, err
 	}
-	defer fs.free(dataUnsealed, sb.ssize)
+	defer sfs.Unlock(unsealedPath)
 
 	atomic.AddInt32(&sb.unsealWait, 1)
 	// TODO: Don't wait if cached
@@ -78,22 +114,20 @@ func (sb *SectorBuilder) ReadPieceFromSealedSector(sectorID uint64, offset uint6
 	sb.unsealLk.Lock() // TODO: allow unsealing unrelated sectors in parallel
 	defer sb.unsealLk.Unlock()
 
-	cacheDir, err := sb.sectorCacheDir(sectorID)
+	cacheDir, err := sb.SectorPath(fs.DataCache, sectorID)
 	if err != nil {
 		return nil, err
 	}
 
-	sealedPath, err := sb.SealedSectorPath(sectorID)
+	sealedPath, err := sb.SectorPath(fs.DataSealed, sectorID)
 	if err != nil {
 		return nil, err
 	}
-
-	unsealedPath := sb.unsealedSectorPath(sectorID)
 
 	// TODO: GC for those
 	//  (Probably configurable count of sectors to be kept unsealed, and just
 	//   remove last used one (or use whatever other cache policy makes sense))
-	f, err := os.OpenFile(unsealedPath, os.O_RDONLY, 0644)
+	f, err := os.OpenFile(string(unsealedPath), os.O_RDONLY, 0644)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return nil, err
@@ -107,9 +141,9 @@ func (sb *SectorBuilder) ReadPieceFromSealedSector(sectorID uint64, offset uint6
 
 		err = ffi.Unseal(sb.ssize,
 			PoRepProofPartitions,
-			cacheDir,
-			sealedPath,
-			unsealedPath,
+			string(cacheDir),
+			string(sealedPath),
+			string(unsealedPath),
 			sectorID,
 			addressToProverID(sb.Miner),
 			tkt,
@@ -118,7 +152,7 @@ func (sb *SectorBuilder) ReadPieceFromSealedSector(sectorID uint64, offset uint6
 			return nil, xerrors.Errorf("unseal failed: %w", err)
 		}
 
-		f, err = os.OpenFile(unsealedPath, os.O_RDONLY, 0644)
+		f, err = os.OpenFile(string(unsealedPath), os.O_RDONLY, 0644)
 		if err != nil {
 			return nil, err
 		}
@@ -176,32 +210,37 @@ func (sb *SectorBuilder) SealPreCommit(ctx context.Context, sectorID uint64, tic
 	return RawSealPreCommitOutput{}, xerrors.New("sectorbuilder stopped")
 }
 
-func (sb *SectorBuilder) SealPreCommitLocal(sectorID uint64, ticket SealTicket, pieces []PublicPieceInfo) (RawSealPreCommitOutput, error) {
+func (sb *SectorBuilder) SealPreCommitLocal(ctx context.Context, sectorID uint64, ticket SealTicket, pieces []PublicPieceInfo) (RawSealPreCommitOutput, error) {
 	log.Info("SealPreCommitLocal...", "sectorID:", sectorID)
-	atomic.AddInt32(&sb.preCommitWait, -1)
-	fs := sb.filesystem
+	sfs := sb.filesystem
 
-	if err := fs.reserve(dataCache, sb.ssize); err != nil {
-		return RawSealPreCommitOutput{}, err
-	}
-	defer fs.free(dataCache, sb.ssize)
-
-	if err := fs.reserve(dataSealed, sb.ssize); err != nil {
-		return RawSealPreCommitOutput{}, err
-	}
-	defer fs.free(dataSealed, sb.ssize)
-
-	cacheDir, err := sb.sectorCacheDir(sectorID)
+	cacheDir, err := sfs.ForceAllocSector(fs.DataCache, sb.Miner, sb.ssize, true, sectorID)
 	if err != nil {
 		return RawSealPreCommitOutput{}, xerrors.Errorf("getting cache dir: %w", err)
 	}
-
-	sealedPath, err := sb.SealedSectorPath(sectorID)
-	if err != nil {
-		return RawSealPreCommitOutput{}, xerrors.Errorf("getting sealed sector path: %w", err)
+	if err := os.Mkdir(string(cacheDir), 0755); err != nil {
+		return RawSealPreCommitOutput{}, err
 	}
 
-	e, err := os.OpenFile(sealedPath, os.O_RDWR|os.O_CREATE, 0644)
+	sealedPath, err := sfs.ForceAllocSector(fs.DataSealed, sb.Miner, sb.ssize, true, sectorID)
+	if err != nil {
+		return RawSealPreCommitOutput{}, xerrors.Errorf("getting sealed sector paths: %w", err)
+	}
+
+	defer sfs.Release(cacheDir, sb.ssize)
+	defer sfs.Release(sealedPath, sb.ssize)
+
+	if err := sfs.Lock(ctx, cacheDir); err != nil {
+		return RawSealPreCommitOutput{}, xerrors.Errorf("lock cache: %w", err)
+	}
+	if err := sfs.Lock(ctx, sealedPath); err != nil {
+		return RawSealPreCommitOutput{}, xerrors.Errorf("lock sealed: %w", err)
+	}
+	defer sfs.Unlock(cacheDir)
+	defer sfs.Unlock(sealedPath)
+	sb.checkRateLimit()
+
+	e, err := os.OpenFile(string(sealedPath), os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		return RawSealPreCommitOutput{}, xerrors.Errorf("ensuring sealed file exists: %w", err)
 	}
@@ -218,15 +257,17 @@ func (sb *SectorBuilder) SealPreCommitLocal(sectorID uint64, ticket SealTicket, 
 		return RawSealPreCommitOutput{}, xerrors.Errorf("aggregated piece sizes don't match sector size: %d != %d (%d)", sum, ussize, int64(ussize-sum))
 	}
 
-	stagedPath := sb.StagedSectorPath(sectorID)
-
+	stagedPath, err := sb.SectorPath(fs.DataStaging, sectorID)
+	if err != nil {
+		return RawSealPreCommitOutput{}, xerrors.Errorf("get staged: %w", err)
+	}
 	// TODO: context cancellation respect
 	rspco, err := ffi.SealPreCommit(
 		sb.ssize,
 		PoRepProofPartitions,
-		cacheDir,
-		stagedPath,
-		sealedPath,
+		string(cacheDir),
+		string(stagedPath),
+		string(sealedPath),
 		sectorID,
 		addressToProverID(sb.Miner),
 		ticket.TicketBytes,
@@ -239,18 +280,26 @@ func (sb *SectorBuilder) SealPreCommitLocal(sectorID uint64, ticket SealTicket, 
 	return RawSealPreCommitOutput(rspco), nil
 }
 
-func (sb *SectorBuilder) SealCommitLocal(sectorID uint64, ticket SealTicket, seed SealSeed, pieces []PublicPieceInfo, rspco RawSealPreCommitOutput) (proof []byte, err error) {
+func (sb *SectorBuilder) SealCommitLocal(ctx context.Context, sectorID uint64, ticket SealTicket, seed SealSeed, pieces []PublicPieceInfo, rspco RawSealPreCommitOutput) (proof []byte, err error) {
 	atomic.AddInt32(&sb.commitWait, -1)
 
-	cacheDir, err := sb.sectorCacheDir(sectorID)
+	//defer func() {
+	//	<-sb.rateLimit
+	//}()
+
+	cacheDir, err := sb.SectorPath(fs.DataCache, sectorID)
 	if err != nil {
 		return nil, err
 	}
+	if err := sb.filesystem.Lock(ctx, cacheDir); err != nil {
+		return nil, err
+	}
+	defer sb.filesystem.Unlock(cacheDir)
 
 	proof, err = ffi.SealCommit(
 		sb.ssize,
 		PoRepProofPartitions,
-		cacheDir,
+		string(cacheDir),
 		sectorID,
 		addressToProverID(sb.Miner),
 		ticket.TicketBytes,
@@ -389,10 +438,11 @@ func (sb *SectorBuilder) SealAddPieceLocal(sectorID uint64, size uint64, hostfix
 	var piecePath = filepath.Join(os.TempDir(),".lotus",  hostfix, ".lastpiece.dat")
 
 	//Check file
-	fileinfo, err := os.Stat(sb.StagedSectorPath(sectorID))
+	spath, _ :=sb.SectorPath(fs.DataStaging, sectorID )
+	fileinfo, err := os.Stat(string(spath))
 	if err == nil || os.IsExist(err) {
 		log.Warn("SealAddPieceLocal...", "sectorID:", sectorID , " RemoteID:", hostfix, " err:", err)
-		os.Remove(sb.StagedSectorPath(sectorID))
+		os.Remove(string(spath))
 	}
 
 	pieceCommp, keyerr := ioutil.ReadFile(keyPath)
@@ -403,7 +453,7 @@ func (sb *SectorBuilder) SealAddPieceLocal(sectorID uint64, size uint64, hostfix
 		pieceExist = true
 	}
 	if  len(pieceCommp) != 32 || !pieceExist || keyerr != nil  {
-		ppi, err := sb.AddPiece(size, sectorID, io.LimitReader(rand.New(rand.NewSource(42)), int64(size)), []uint64{}, piecePath)
+		ppi, err := sb.AddPiece(context.TODO(), size, sectorID, io.LimitReader(rand.New(rand.NewSource(42)), int64(size)), []uint64{}, piecePath)
 		//ppi, err := sb.AddPiece(size, sectorID, sb.pledgeReader(size, uint64(runtime.NumCPU())),  []uint64{}, piecePath)
 		if err != nil {
 			log.Info("SealAddPieceLocal...", "sectorID:", sectorID , " RemoteID:", hostfix, " err", err)
@@ -420,14 +470,14 @@ func (sb *SectorBuilder) SealAddPieceLocal(sectorID uint64, size uint64, hostfix
 
 	//log.Info("SealAddPieceLocal...  ", " sectorID:", sectorID, "  pieceCommp:", pieceCommp)
 
-	migrateFile(piecePath, sb.StagedSectorPath(sectorID), true)
+	os.Symlink(piecePath, string(spath))
 
 	//Dobule Check
-	fileinfo, err = os.Stat(sb.StagedSectorPath(sectorID))
+	fileinfo, err = os.Stat(string(spath))
 	if err != nil || fileinfo.Size() == 0 {
 		log.Warn("SealAddPieceLocal...", "sectorID:", sectorID , " RemoteID:", hostfix, " err:", err)
-		os.Remove(sb.StagedSectorPath(sectorID))
-		migrateFile(piecePath, sb.StagedSectorPath(sectorID), true)
+		os.Remove(string(spath))
+		os.Symlink(piecePath, string(spath))
 	}
 
 	return pieceCommp, nil
