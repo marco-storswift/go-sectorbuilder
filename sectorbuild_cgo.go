@@ -23,11 +23,7 @@ var pushSectorNum = uint64(0)
 
 var _ Interface = &SectorBuilder{}
 
-func (sb *SectorBuilder) AddPiece(ctx context.Context, pieceSize uint64, sectorId uint64, file io.Reader, existingPieceSizes []uint64, storagepah string) (PublicPieceInfo, error) {
-	atomic.AddInt32(&sb.addPieceWait, 1)
-	ret := sb.RateLimit()
-	atomic.AddInt32(&sb.addPieceWait, -1)
-	defer ret()
+func (sb *SectorBuilder) AddPiece(ctx context.Context, pieceSize uint64, sectorId uint64, file io.Reader, existingPieceSizes []uint64, stagingPath string) (PublicPieceInfo, error) {
 
 	f, werr, err := toReadableFile(file, int64(pieceSize))
 	if err != nil {
@@ -42,6 +38,10 @@ func (sb *SectorBuilder) AddPiece(ctx context.Context, pieceSize uint64, sectorI
 			return PublicPieceInfo{}, xerrors.Errorf("allocating sector: %w", err)
 		}
 
+		if stagingPath != "" {
+			stagedPath = fs.SectorPath(stagingPath)
+		}
+
 		stagedFile, err = os.Create(string(stagedPath))
 		if err != nil {
 			return PublicPieceInfo{}, xerrors.Errorf("opening sector file: %w", err)
@@ -52,6 +52,10 @@ func (sb *SectorBuilder) AddPiece(ctx context.Context, pieceSize uint64, sectorI
 		stagedPath, err = sb.SectorPath(fs.DataStaging, sectorId)
 		if err != nil {
 			return PublicPieceInfo{}, xerrors.Errorf("getting sector path: %w", err)
+		}
+
+		if stagingPath != "" {
+			stagedPath = fs.SectorPath(stagingPath)
 		}
 
 		stagedFile, err = os.OpenFile(string(stagedPath), os.O_RDWR, 0644)
@@ -171,7 +175,6 @@ func (sb *SectorBuilder) ReadPieceFromSealedSector(ctx context.Context, sectorID
 
 func (sb *SectorBuilder) SealPreCommit(ctx context.Context, sectorID uint64, ticket SealTicket, pieces []PublicPieceInfo, remoteid string) (RawSealPreCommitOutput, error) {
 
-
 	if sb.sealTasks[remoteid] == nil {
 		sb.sealTasks[remoteid] = make(chan workerCall)
 	}
@@ -275,11 +278,6 @@ func (sb *SectorBuilder) SealPreCommitLocal(ctx context.Context, sectorID uint64
 }
 
 func (sb *SectorBuilder) SealCommitLocal(ctx context.Context, sectorID uint64, ticket SealTicket, seed SealSeed, pieces []PublicPieceInfo, rspco RawSealPreCommitOutput) (proof []byte, err error) {
-	atomic.AddInt32(&sb.commitWait, -1)
-
-	defer func() {
-		<-sb.rateLimit
-	}()
 
 	cacheDir, err := sb.SectorPath(fs.DataCache, sectorID)
 	if err != nil {
