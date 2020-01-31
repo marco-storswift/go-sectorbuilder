@@ -2,7 +2,6 @@ package sectorbuilder
 
 import (
 	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-sectorbuilder/fs"
 	"github.com/ipfs/go-datastore"
 )
 
