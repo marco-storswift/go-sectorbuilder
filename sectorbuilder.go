@@ -3,7 +3,9 @@ package sectorbuilder
 import (
 	"container/list"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -411,4 +413,161 @@ func migrateFile(from, to string, symlink bool) error {
 
 func (sb *SectorBuilder) Stop() {
 	close(sb.stopping)
+}
+
+func (sb *SectorBuilder) DealPushData(ids interface{}) (error) {
+	key := os.Getenv("SEAL_PUSH_DATA_NUM")
+	num, err := strconv.ParseUint(key, 10, 64)
+	if err != nil || num == uint64(0) {
+		num = 3
+	}
+	var remoteID = ""
+	var storagePath = ""
+	var sectorID = uint64(0)
+	var sector *list.Element = nil
+
+	if ids == nil {
+		if pushSectorNum >= num {
+			log.Infof("SealPushData... in process  pushSectorNum:%d num:%d ", pushSectorNum, num)
+			return nil
+		}
+
+		if sb.pushDataQueue == nil || sb.pushDataQueue.Len() == 0 {
+			return nil
+		}
+
+		lenth := sb.pushDataQueue.Len()
+		for i := 0; i < lenth; i++ {
+			ele := sb.pushDataQueue.Back()
+			if ele == nil {
+				log.Info("SealPushData... ele == nil  pushSectorNum:", pushSectorNum)
+				return nil
+			}
+
+			data := ele.Value.(PushData)
+			tempremoteID := data.RemoteID
+			tempsectorID := data.SectorID
+			tempstoragePath := data.StoragePath
+
+			if tempremoteID == "" || tempsectorID == 0 {
+				log.Error("SealPushData...", "remoteID: ", tempremoteID, " sectorID: ", tempsectorID)
+				sb.pushDataQueue.Remove(ele)
+				continue
+			}
+
+			pushremoteID := tempremoteID + ".push"
+			task := sb.pushTasks[pushremoteID]
+			if task == nil {
+				log.Warn("SealPushData...pushTasks is nil  ", "remoteID: ", pushremoteID, " sectorID: ", tempsectorID)
+				//sb.pushDataQueue.MoveToFront(ele)
+				sb.pushDataQueue.Remove(ele)
+				continue
+			}
+
+			err = sb.CheckSector("", tempsectorID)
+			if err == nil {
+				log.Info("SealPushData... Exist", " remoteID: ", tempremoteID, " sectorID: ", tempsectorID)
+				sb.pushDataQueue.Remove(ele)
+				continue
+			}
+
+			remoteID = pushremoteID
+			storagePath = tempstoragePath
+			sectorID = tempsectorID
+
+			sector = ele
+			break
+		}
+	} else {
+		tmpid := ids.(PushData)
+		log.Info("SealPushData...", tmpid)
+		for item := sb.pushDataQueue.Front();nil != item ;item = item.Next() {
+			data := item.Value.(PushData)
+			tempremoteID := data.RemoteID
+			tempsectorID := data.SectorID
+			tempstoragePath := data.StoragePath
+			if  tempremoteID == tmpid.RemoteID &&  tempsectorID == tmpid.SectorID && tempstoragePath == tmpid.StoragePath {
+				log.Info("SealPushData...", data)
+				return nil
+			}
+		}
+
+		return xerrors.New("pushDataQueue Tasks not find")
+	}
+
+	log.Infof("SealPushData... %d/%d %s %d %s", sb.pushDataQueue.Len(), pushSectorNum, remoteID, sectorID, storagePath)
+	if remoteID == ""  ||  sectorID == 0 {
+		return nil
+	}
+
+	//change RemoteID to pushtask
+	pushcall := workerCall{
+		task: WorkerTask{
+			Type:       WorkerPushData,
+			TaskID:     atomic.AddUint64(&sb.taskCtr, 1),
+			SectorID:   sectorID,
+			RemoteID:   remoteID,
+			StoragePath: storagePath,
+		},
+		ret: make(chan SealRes),
+	}
+
+	pushtask := sb.pushTasks[remoteID]
+	if pushtask == nil {
+		log.Warn("SealPushData...", "remoteID: ", remoteID,  " sectorID: ",sectorID)
+		return  xerrors.New("pushTasks not find")
+	}
+
+	if sector != nil {
+		sb.pushDataQueue.Remove(sector)
+	}
+
+	select { // prefer remote
+	case pushtask <- pushcall:
+		sb.sealPushDataRemote(pushcall)
+		return nil
+	default:
+	}
+
+	return nil
+}
+func (sb *SectorBuilder) AddPushData(id interface{}) (error) {
+	sb.pushDataQueue.PushFront(id)
+	return nil
+}
+
+func (sb *SectorBuilder) pledgeReader(size uint64, parts uint64) io.Reader {
+	piece := UserBytesForSectorSize((size/127 + size) / parts)
+
+	readers := make([]io.Reader, parts)
+	for i := range readers {
+		readers[i] = io.LimitReader(rand.New(rand.NewSource(42+int64(i))), int64(piece))
+	}
+
+	return io.MultiReader(readers...)
+}
+
+func (sb *SectorBuilder) sealPushDataRemote(call workerCall) (string, error) {
+	defer func() {
+		sb.pushLk.Lock()
+		pushSectorNum = pushSectorNum - 1
+		sb.pushLk.Unlock()
+		go sb.DealPushData(nil)
+	}()
+
+	log.Info("sealPushDataRemote...", "sectorID:", call.task.SectorID, "  RemoteID:", call.task.RemoteID)
+	sb.pushLk.Lock()
+	pushSectorNum = pushSectorNum + 1
+	sb.pushLk.Unlock()
+
+	select {
+	case ret := <-call.ret:
+		var err error
+		if ret.Err != "" {
+			err = xerrors.New(ret.Err)
+		}
+		return ret.RemoteID, err
+	case <-sb.stopping:
+		return "", xerrors.New("sectorbuilder stopped")
+	}
 }
