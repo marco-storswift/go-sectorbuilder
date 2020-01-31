@@ -38,7 +38,7 @@ func (sb *SectorBuilder) CheckSector(storpath string, sectorID uint64) error {
 	cache := string(scache)
 
 	if storpath != "" {
-		cache = filepath.Join(storpath, "cache", sb.SectorName(sectorID))
+		cache = filepath.Join(storpath, string(fs.DataCache), sb.SectorName(sectorID))
 	}
 
 	if err := assertFile(filepath.Join(cache, "p_aux"), 96, 96); err != nil {
@@ -63,7 +63,7 @@ func (sb *SectorBuilder) CheckSector(storpath string, sectorID uint64) error {
 
 	sealed, err := sb.SectorPath(fs.DataSealed, sectorID)
 	if storpath != "" {
-		sealed = filepath.Join(storpath, "sealed", sb.SectorName(sectorID))
+		sealed = fs.SectorPath(filepath.Join(storpath, string(fs.DataSealed), sb.SectorName(sectorID)))
 	}
 	if err != nil {
 		return xerrors.Errorf("getting sealed sector paths: %w", err)
