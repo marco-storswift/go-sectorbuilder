@@ -13,12 +13,10 @@ import (
 	"time"
 
 	ffi "github.com/filecoin-project/filecoin-ffi"
-	"github.com/filecoin-project/go-address"
-	paramfetch "github.com/filecoin-project/go-paramfetch"
-	"github.com/filecoin-project/go-sectorbuilder/fs"
 	"github.com/ipfs/go-datastore"
 	logging "github.com/ipfs/go-log"
 
+	paramfetch "github.com/filecoin-project/go-paramfetch"
 	sectorbuilder "github.com/filecoin-project/go-sectorbuilder"
 
 	"github.com/stretchr/testify/assert"
@@ -150,41 +148,21 @@ func TestSealAndVerify(t *testing.T) {
 
 	ds := datastore.NewMapDatastore()
 
-	cdir, err := ioutil.TempDir("", "sbtest-c-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sdir, err := ioutil.TempDir("", "sbtest-s-")
+	dir, err := ioutil.TempDir("", "sbtest")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	paths := []fs.PathConfig{
-		{
-			Path:   cdir,
-			Cache:  true,
-			Weight: 1,
-		},
-		{
-			Path:   sdir,
-			Cache:  false,
-			Weight: 1,
-		},
-	}
-
-	sb, err := sectorbuilder.TempSectorbuilderDir(paths, sectorSize, ds)
+	sb, err := sectorbuilder.TempSectorbuilderDir(dir, sectorSize, ds)
 	if err != nil {
 		t.Fatalf("%+v", err)
 	}
 	cleanup := func() {
 		if t.Failed() {
-			fmt.Printf("not removing %s, %s\n", cdir, sdir)
+			fmt.Printf("not removing %s\n", dir)
 			return
 		}
-		if err := os.RemoveAll(cdir); err != nil {
-			t.Error(err)
-		}
-		if err := os.RemoveAll(sdir); err != nil {
+		if err := os.RemoveAll(dir); err != nil {
 			t.Error(err)
 		}
 	}
@@ -212,16 +190,12 @@ func TestSealAndVerify(t *testing.T) {
 	epost := time.Now()
 
 	// Restart sectorbuilder, re-run post
-	sb, err = sectorbuilder.TempSectorbuilderDir(paths, sectorSize, ds)
+	sb, err = sectorbuilder.TempSectorbuilderDir(dir, sectorSize, ds)
 	if err != nil {
 		t.Fatalf("%+v", err)
 	}
 
 	post(t, sb, s)
-
-	if err := sb.FinalizeSector(context.TODO(), 1); err != nil {
-		t.Fatalf("%+v", err)
-	}
 
 	fmt.Printf("PreCommit: %s\n", precommit.Sub(start).String())
 	fmt.Printf("Commit: %s\n", commit.Sub(precommit).String())
@@ -246,7 +220,7 @@ func TestSealPoStNoCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sb, err := sectorbuilder.TempSectorbuilderDir(sectorbuilder.SimplePath(dir), sectorSize, ds)
+	sb, err := sectorbuilder.TempSectorbuilderDir(dir, sectorSize, ds)
 	if err != nil {
 		t.Fatalf("%+v", err)
 	}
@@ -275,12 +249,12 @@ func TestSealPoStNoCommit(t *testing.T) {
 	precommit := time.Now()
 
 	// Restart sectorbuilder, re-run post
-	sb, err = sectorbuilder.TempSectorbuilderDir(sectorbuilder.SimplePath(dir), sectorSize, ds)
+	sb, err = sectorbuilder.TempSectorbuilderDir(dir, sectorSize, ds)
 	if err != nil {
 		t.Fatalf("%+v", err)
 	}
 
-	if err := sb.TrimCache(context.TODO(), 1); err != nil {
+	if err := sb.TrimCache(1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -310,7 +284,7 @@ func TestSealAndVerify2(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sb, err := sectorbuilder.TempSectorbuilderDir(sectorbuilder.SimplePath(dir), sectorSize, ds)
+	sb, err := sectorbuilder.TempSectorbuilderDir(dir, sectorSize, ds)
 	if err != nil {
 		t.Fatalf("%+v", err)
 	}
@@ -358,7 +332,7 @@ func TestAcquireID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sb, err := sectorbuilder.TempSectorbuilderDir(sectorbuilder.SimplePath(dir), sectorSize, ds)
+	sb, err := sectorbuilder.TempSectorbuilderDir(dir, sectorSize, ds)
 	if err != nil {
 		t.Fatalf("%+v", err)
 	}
@@ -373,7 +347,7 @@ func TestAcquireID(t *testing.T) {
 	assertAcquire(2)
 	assertAcquire(3)
 
-	sb, err = sectorbuilder.TempSectorbuilderDir(sectorbuilder.SimplePath(dir), sectorSize, ds)
+	sb, err = sectorbuilder.TempSectorbuilderDir(dir, sectorSize, ds)
 	if err != nil {
 		t.Fatalf("%+v", err)
 	}
@@ -384,36 +358,5 @@ func TestAcquireID(t *testing.T) {
 
 	if err := os.RemoveAll(dir); err != nil {
 		t.Error(err)
-	}
-}
-
-// TestVerifyEmpty tests a certain assumption
-func TestVerifyEmpty(t *testing.T) {
-	cSeed := [32]byte{0, 9, 2, 7, 6, 5, 4, 3, 2, 1, 0, 9, 8, 7, 6, 45, 3, 2, 1, 0, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 9}
-	sr := [32]byte{0, 9, 2, 7, 6, 5, 4, 3, 2, 1, 43, 9, 8, 7, 6, 45, 3, 2, 1, 0, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 9}
-	t0101, err := address.NewIDAddress(101)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	ok, err := sectorbuilder.ProofVerifier.VerifyFallbackPost(
-		context.TODO(),
-		1024,
-		sectorbuilder.NewSortedPublicSectorInfo([]ffi.PublicSectorInfo{
-			{SectorID: sectorSize, CommR: sr},
-			{SectorID: sectorSize, CommR: sr},
-		}),
-		cSeed[:],
-		nil, // 0s
-		nil, // 0s
-		t0101,
-		2) //fault everything
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-	if !ok {
-		t.Error("proof not ok")
 	}
 }

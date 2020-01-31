@@ -5,14 +5,11 @@ import (
 	"io"
 
 	"github.com/filecoin-project/go-address"
-
-	"github.com/filecoin-project/go-sectorbuilder/fs"
 )
 
 type Interface interface {
 	RateLimit() func()
-
-	AddPiece(context.Context, uint64, uint64, io.Reader, []uint64, string) (PublicPieceInfo, error)
+	AddPiece(uint64, uint64, io.Reader, []uint64, string) (PublicPieceInfo, error)
 	SectorSize() uint64
 	AcquireSectorId() (uint64, error)
 	Scrub(SortedPublicSectorInfo) []*Fault
@@ -22,16 +19,11 @@ type Interface interface {
 	ComputeElectionPoSt(sectorInfo SortedPublicSectorInfo, challengeSeed []byte, winners []EPostCandidate) ([]byte, error)
 
 	SealPreCommit(context.Context, uint64, SealTicket, []PublicPieceInfo, string) (RawSealPreCommitOutput, error)
-	SealCommit(context.Context, uint64, SealTicket, SealSeed, []PublicPieceInfo, RawSealPreCommitOutput, string, string) ([]byte, error)
-	// FinalizeSector cleans up cache, and moves it to storage filesystem
-	FinalizeSector(context.Context, uint64) error
-	DropStaged(context.Context, uint64) error
+	SealCommit(context.Context, uint64, SealTicket, SealSeed, []PublicPieceInfo, RawSealPreCommitOutput,string, string) ([]byte, error)
 
-	ReadPieceFromSealedSector(ctx context.Context, sectorID uint64, offset uint64, size uint64, ticket []byte, commD []byte) (io.ReadCloser, error)
+	ReadPieceFromSealedSector(sectorID uint64, offset uint64, size uint64, ticket []byte, commD []byte) (io.ReadCloser, error)
 
-	SectorPath(typ fs.DataType, sectorID uint64) (fs.SectorPath, error)
-	AllocSectorPath(typ fs.DataType, sectorID uint64, cache bool) (fs.SectorPath, error)
-	ReleaseSector(fs.DataType, fs.SectorPath)
+	GetPath(string, string) (string, error)
 	CanCommit(sectorID uint64) (bool, error)
 	WorkerStats() WorkerStats
 	AddWorker(context.Context, WorkerCfg) (<-chan WorkerTask, error)

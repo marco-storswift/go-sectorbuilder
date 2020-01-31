@@ -2,12 +2,11 @@ package sectorbuilder
 
 import (
 	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-sectorbuilder/fs"
 	"github.com/ipfs/go-datastore"
 )
 
-func TempSectorbuilderDir(paths []fs.PathConfig, sectorSize uint64, ds datastore.Batching) (*SectorBuilder, error) {
-	addr, err := address.NewFromString("t0123")
+func TempSectorbuilderDir(dir string, sectorSize uint64, ds datastore.Batching) (*SectorBuilder, error) {
+	addr, err := address.NewFromString("t3vfxagwiegrywptkbmyohqqbfzd7xzbryjydmxso4hfhgsnv6apddyihltsbiikjf3lm7x2myiaxhuc77capq")
 	if err != nil {
 		return nil, err
 	}
@@ -15,7 +14,7 @@ func TempSectorbuilderDir(paths []fs.PathConfig, sectorSize uint64, ds datastore
 	sb, err := New(&Config{
 		SectorSize: sectorSize,
 
-		Paths: paths,
+		Dir: dir,
 
 		WorkerThreads: 2,
 		Miner:         addr,
@@ -25,12 +24,4 @@ func TempSectorbuilderDir(paths []fs.PathConfig, sectorSize uint64, ds datastore
 	}
 
 	return sb, nil
-}
-
-func SimplePath(dir string) []fs.PathConfig {
-	return []fs.PathConfig{{
-		Path:   dir,
-		Cache:  true,
-		Weight: 1,
-	}}
 }
