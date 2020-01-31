@@ -33,6 +33,7 @@ func (sb *SectorBuilder) AddPiece(ctx context.Context, pieceSize uint64, sectorI
 	var stagedFile *os.File
 	var stagedPath fs.SectorPath
 	if len(existingPieceSizes) == 0 {
+		log.Infof("AddPiece... %d %s",sectorId, stagingPath)
 		if stagingPath != "" {
 			stagedPath = fs.SectorPath(stagingPath)
 		} else  {
@@ -40,15 +41,15 @@ func (sb *SectorBuilder) AddPiece(ctx context.Context, pieceSize uint64, sectorI
 			if err != nil {
 				return PublicPieceInfo{}, xerrors.Errorf("allocating sector: %w", err)
 			}
+			defer sb.filesystem.Release(stagedPath, sb.ssize)
 		}
 
 		stagedFile, err = os.Create(string(stagedPath))
 		if err != nil {
 			return PublicPieceInfo{}, xerrors.Errorf("opening sector file: %w", err)
 		}
-
-		defer sb.filesystem.Release(stagedPath, sb.ssize)
 	} else {
+		log.Infof("AddPiece... %d %s",sectorId, stagingPath)
 		if stagingPath != "" {
 			stagedPath = fs.SectorPath(stagingPath)
 		} else {
