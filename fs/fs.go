@@ -101,6 +101,8 @@ type FS struct {
 
 	locks map[SectorPath]chan struct{}
 
+	StorageMap    sync.Map
+
 	lk sync.Mutex
 }
 
@@ -150,6 +152,11 @@ func (f *FS) FindSector(typ DataType, miner address.Address, id uint64) (out Sec
 
 	for path := range f.paths {
 		p := path.Sector(typ, miner, id)
+		//sepcilal storage
+		storagepath, _:= f.StorageMap.Load(id)
+		if storagepath != nil && storagepath != "" && len(storagepath.(string)) > 0 {
+			p =  SectorPath(filepath.Join(string(storagepath.(string)), ".lotusstorage", string(typ), SectorName(miner, id)))
+		}
 
 		_, err := os.Stat(string(p))
 		if os.IsNotExist(err) {
