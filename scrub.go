@@ -32,7 +32,7 @@ func (sb *SectorBuilder) Scrub(sectorSet sectorbuilder.SortedPublicSectorInfo) [
 
 func (sb *SectorBuilder) CheckSector(storpath string, sectorID uint64) error {
 	scache, err := sb.SectorPath(fs.DataCache, sectorID)
-	if err != nil {
+	if err != nil && storpath == "" {
 		return xerrors.Errorf("getting sector cache dir: %w", err)
 	}
 	cache := string(scache)
@@ -64,7 +64,7 @@ func (sb *SectorBuilder) CheckSector(storpath string, sectorID uint64) error {
 	if storpath != "" {
 		sealed = fs.SectorPath(filepath.Join(storpath, string(fs.DataSealed), sb.SectorName(sectorID)))
 	}
-	if err != nil {
+	if err != nil && storpath == ""{
 		return xerrors.Errorf("getting sealed sector paths: %w", err)
 	}
 
